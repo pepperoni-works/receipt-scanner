@@ -118,10 +118,7 @@ function updateQR() {
     gasUrl: getGasUrl(),
     sheetUrl: localStorage.getItem('receipt_sheet_url') || ''
   };
-  let base = window.location.origin + window.location.pathname;
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    base = `http://192.168.0.182:${window.location.port}` + window.location.pathname;
-  }
+  let base = 'https://pepperoni-works.github.io/receipt-scanner/';
   const shareUrl = base + '#config=' + encodeURIComponent(JSON.stringify(cfg));
   try {
     const qr = qrcode(0, 'L');
