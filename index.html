@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pepperoni.works レシートスキャナ</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="レシート">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css?v=6">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-brand">
+        <img class="brand-logo brand-logo-dark" src="icons/pepperoniworks_black.png" alt="pepperoni.works">
+        <img class="brand-logo brand-logo-light" src="icons/pepperoniworks_white.png" alt="pepperoni.works">
+        <span class="brand-subtitle">Receipt Scanner</span>
+      </div>
+      <button class="btn-theme" id="themeToggleBtn" title="ダークモード切替">🌙</button>
+      <button class="btn-gear" id="openSettingsBtn" title="設定">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
+    </header>
+
+    <!-- 設定モーダル -->
+    <div class="modal-overlay hidden" id="settingsModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>設定</h2>
+          <button class="btn-icon" id="closeSettingsBtn" title="閉じる">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="settings-body">
+        <label>
+          Anthropic API Key
+          <span class="setting-help">レシート画像のAI解析に使用します</span>
+          <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+        </label>
+        <label>
+          スプレッドシートURL
+          <span class="setting-help">記録先のスプレッドシートURLを貼り付け（<a href="https://sheets.new" target="_blank" rel="noopener">新規作成</a>）</span>
+          <input type="url" id="sheetUrlInput" placeholder="https://docs.google.com/spreadsheets/d/.../edit">
+        </label>
+        <label>
+          Google Apps Script URL
+          <span class="setting-help">下の手順でGASをデプロイして取得</span>
+          <input type="url" id="gasUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+        </label>
+        <details class="gas-guide">
+          <summary class="gas-guide-toggle">GAS URLの取得手順</summary>
+          <div class="gas-guide-body">
+            <ol class="gas-steps">
+              <li><a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">Google Apps Scriptを新規作成</a></li>
+              <li>下のコードをコピーして貼り付けて保存<br><span class="setting-help">上のスプレッドシートURL入力済みならIDは自動で埋まります</span></li>
+              <li>「デプロイ」→「新しいデプロイ」→ 種類: ウェブアプリ / アクセス: 全員</li>
+              <li>発行されたURLを上の欄に貼り付け</li>
+            </ol>
+            <div class="gas-code-block">
+              <div class="gas-code-header">
+                <span>Code.gs</span>
+                <button class="btn btn-secondary btn-sm" id="copyGasCodeBtn">コピー</button>
+              </div>
+              <pre class="gas-code" id="gasCode"></pre>
+            </div>
+          </div>
+        </details>
+        <button class="btn btn-primary" id="saveAndCheckBtn">保存して接続チェック</button>
+        <div class="check-results hidden" id="checkResults"></div>
+        <div class="share-section">
+          <div class="qr-container" id="qrContainer"></div>
+          <p class="setting-help" style="text-align:center">スマホでQRを読み取ると設定が引き継がれます</p>
+        </div>
+      </div>
+    </div></div>
+
+    <!-- 入力エリア -->
+    <section class="upload-section" id="uploadSection">
+      <!-- メイン入力（撮影・ファイル選択） -->
+      <div id="inputMain">
+        <div class="drop-zone unified-drop" id="dropZone">
+          <label class="camera-hero-btn">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
+            </svg>
+            <span>レシートを撮影</span>
+            <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif" capture="environment" id="cameraInput" hidden>
+          </label>
+          <div class="drop-divider"><span>または ファイルをドロップ / 選択</span></div>
+          <label class="file-pick-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <span>画像・PDFを選択</span>
+            <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif,application/pdf,.pdf" id="fileInput" hidden>
+          </label>
+        </div>
+        <div class="secondary-actions">
+          <button class="secondary-action-btn" data-mode="csv">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            CSV
+          </button>
+          <button class="secondary-action-btn" data-mode="gmail">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            Gmail
+          </button>
+          <button class="secondary-action-btn" data-mode="url">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+            URL
+          </button>
+          <button class="secondary-action-btn" data-mode="text">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            テキスト
+          </button>
+        </div>
+      </div>
+      <!-- サブ入力（Gmail/URL/テキスト） -->
+      <div id="inputAlt" class="hidden">
+        <div class="input-alt-header">
+          <button class="btn-back" id="inputBackBtn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          </button>
+          <span class="input-alt-title" id="inputAltTitle"></span>
+        </div>
+        <!-- CSV -->
+        <div class="alt-panel" id="altCsv">
+          <p class="setting-help" style="margin-bottom:8px">クレジットカード明細などのCSVファイルをアップロードして一括取込。AIが自動で勘定科目を分類します。</p>
+          <label class="file-pick-btn" style="width:100%;justify-content:center;margin-bottom:8px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>CSVファイルを選択</span>
+            <input type="file" accept=".csv,text/csv" id="csvFileInput" hidden>
+          </label>
+          <div id="csvPreview" class="hidden">
+            <div id="csvPreviewContent"></div>
+            <button class="btn btn-primary btn-block" id="csvImportBtn" style="margin-top:8px">AIで分類して一括取込</button>
+          </div>
+        </div>
+        <!-- Gmail -->
+        <div class="alt-panel" id="altGmail">
+          <div class="gmail-search-bar">
+            <input type="text" id="gmailQuery" placeholder="検索キーワード（空欄で最新）">
+            <button class="btn btn-primary btn-sm" id="gmailSearchBtn">検索</button>
+          </div>
+          <div class="gmail-list" id="gmailList">
+            <p class="history-empty">検索ボタンでレシート関連メールを取得</p>
+          </div>
+        </div>
+        <!-- URL -->
+        <div class="alt-panel" id="altUrl">
+          <input type="url" id="urlInput" class="text-receipt-input" placeholder="https://example.com/receipt..." style="min-height:auto;margin-bottom:8px">
+          <button class="btn btn-primary btn-block" id="analyzeUrlBtn">取得して解析</button>
+        </div>
+        <!-- テキスト -->
+        <div class="alt-panel" id="altText">
+          <textarea id="textReceiptInput" class="text-receipt-input" rows="5" placeholder="レシートやメールの内容を貼り付け..."></textarea>
+          <button class="btn btn-primary btn-block" id="analyzeTextBtn">解析</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- プレビュー＆解析中 -->
+    <section class="preview-section hidden" id="previewSection">
+      <div class="preview-image-wrapper">
+        <img id="previewImage" alt="レシートプレビュー">
+        <button class="btn-icon btn-remove" id="removeImageBtn" title="画像を削除">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="analyzing hidden" id="analyzingIndicator">
+        <div class="spinner"></div>
+        <p>AIが解析中...</p>
+      </div>
+    </section>
+
+    <!-- 結果編集フォーム -->
+    <section class="edit-section hidden" id="editSection">
+      <h2>読み取り結果</h2>
+      <form id="receiptForm">
+        <label>
+          店舗名
+          <input type="text" id="storeInput" required>
+        </label>
+        <div class="form-row">
+          <label class="form-half">
+            日付
+            <input type="date" id="dateInput" required>
+          </label>
+          <label class="form-half">
+            金額
+            <div class="currency-input-row">
+              <select id="currencySelect" class="currency-select">
+                <option value="JPY">JPY</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="GBP">GBP</option>
+                <option value="CNY">CNY</option>
+                <option value="KRW">KRW</option>
+                <option value="TWD">TWD</option>
+                <option value="THB">THB</option>
+              </select>
+              <input type="number" id="amountInput" min="0" required style="flex:1">
+            </div>
+          </label>
+        </div>
+        <div class="currency-convert-row hidden" id="currencyConvertRow">
+          <label class="form-half">
+            レート（→JPY）
+            <input type="number" id="exchangeRateInput" step="0.0001" min="0">
+          </label>
+          <label class="form-half">
+            円換算額
+            <input type="number" id="jpyAmountDisplay" readonly class="readonly-input">
+          </label>
+        </div>
+        <label>
+          勘定科目
+          <select id="categorySelect" required>
+            <optgroup label="よく使う">
+              <option value="消耗品費">消耗品費</option>
+              <option value="旅費交通費">旅費交通費</option>
+              <option value="通信費">通信費</option>
+              <option value="接待交際費">接待交際費</option>
+              <option value="会議費">会議費</option>
+              <option value="新聞図書費">新聞図書費</option>
+            </optgroup>
+            <optgroup label="事務所・設備">
+              <option value="地代家賃">地代家賃</option>
+              <option value="水道光熱費">水道光熱費</option>
+              <option value="修繕費">修繕費</option>
+              <option value="リース料">リース料</option>
+            </optgroup>
+            <optgroup label="外注・人件費">
+              <option value="外注工賃">外注工賃</option>
+              <option value="給料賃金">給料賃金</option>
+              <option value="福利厚生費">福利厚生費</option>
+            </optgroup>
+            <optgroup label="その他">
+              <option value="広告宣伝費">広告宣伝費</option>
+              <option value="損害保険料">損害保険料</option>
+              <option value="減価償却費">減価償却費</option>
+              <option value="雑費">雑費</option>
+              <option value="その他">その他</option>
+            </optgroup>
+          </select>
+        </label>
+        <label>
+          メモ
+          <input type="text" id="memoInput" placeholder="任意">
+        </label>
+        <details class="form-details" id="formDetails">
+          <summary>税・支払い・按分</summary>
+          <div class="form-details-body">
+            <div class="form-row">
+              <label class="form-half">
+                税区分
+                <select id="taxRateSelect">
+                  <option value="10%">10%</option>
+                  <option value="8%">8%（軽減）</option>
+                  <option value="混在">混在</option>
+                  <option value="非課税">非課税</option>
+                  <option value="不明">不明</option>
+                </select>
+              </label>
+              <label class="form-half">
+                支払方法
+                <select id="paymentSelect">
+                  <option value="不明">不明</option>
+                  <option value="現金">現金</option>
+                  <option value="クレジットカード">クレジットカード</option>
+                  <option value="銀行振込">銀行振込</option>
+                  <option value="電子マネー">電子マネー</option>
+                  <option value="QRコード決済">QRコード決済</option>
+                  <option value="その他">その他</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              インボイス番号
+              <input type="text" id="invoiceInput" placeholder="T1234567890123">
+            </label>
+            <div class="form-row">
+              <label class="form-half">
+                経費区分
+                <select id="expenseTypeSelect">
+                  <option value="事業">事業（100%）</option>
+                  <option value="按分">按分</option>
+                  <option value="個人">個人（対象外）</option>
+                </select>
+              </label>
+              <label class="form-half">
+                按分率（%）
+                <input type="number" id="prorationInput" min="0" max="100" value="100" placeholder="100">
+              </label>
+            </div>
+            <div class="calc-row" id="calcRow">
+              <div class="calc-item">
+                <span class="calc-label">税抜金額</span>
+                <span class="calc-value" id="calcExTax">-</span>
+              </div>
+              <div class="calc-item">
+                <span class="calc-label">消費税額</span>
+                <span class="calc-value" id="calcTax">-</span>
+              </div>
+              <div class="calc-item">
+                <span class="calc-label">経費算入額</span>
+                <span class="calc-value" id="calcBusiness">-</span>
+              </div>
+            </div>
+          </div>
+        </details>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="saveBtn">スプレッドシートに保存</button>
+          <button type="button" class="btn btn-secondary" id="cancelBtn">キャンセル</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 保存中 -->
+    <div class="saving-overlay hidden" id="savingOverlay">
+      <div class="spinner"></div>
+      <p>保存中...</p>
+    </div>
+
+    <!-- 履歴 -->
+    <!-- 今回のセッション記録 -->
+    <section class="history-section hidden" id="historySection">
+      <h2>今回の記録 <span class="history-count" id="historyCount"></span></h2>
+      <div class="history-list" id="historyList"></div>
+    </section>
+
+    <!-- スプレッドシート全履歴 -->
+    <section class="history-section" id="allHistorySection">
+      <div class="all-history-header">
+        <h2>全履歴 <span class="history-count" id="allHistoryCount"></span></h2>
+        <button class="btn btn-secondary btn-sm" id="refreshHistoryBtn">更新</button>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="list">一覧</button>
+        <button class="tab-btn" data-tab="monthly">月別</button>
+        <button class="tab-btn" data-tab="yearly">年別</button>
+      </div>
+      <!-- 一覧タブ -->
+      <div class="tab-content active" id="tabList">
+        <div class="history-filter">
+          <select id="filterCategory">
+            <option value="">全カテゴリ</option>
+            <option value="消耗品費">消耗品費</option>
+            <option value="旅費交通費">旅費交通費</option>
+            <option value="通信費">通信費</option>
+            <option value="接待交際費">接待交際費</option>
+            <option value="会議費">会議費</option>
+            <option value="地代家賃">地代家賃</option>
+            <option value="水道光熱費">水道光熱費</option>
+            <option value="外注工賃">外注工賃</option>
+            <option value="雑費">雑費</option>
+            <option value="その他">その他</option>
+          </select>
+          <input type="month" id="filterMonth" placeholder="月で絞り込み">
+        </div>
+        <div class="history-summary" id="historySummary"></div>
+        <div class="history-list" id="allHistoryList">
+          <p class="history-empty">読み込み中...</p>
+        </div>
+      </div>
+      <!-- 月別タブ -->
+      <div class="tab-content" id="tabMonthly">
+        <div class="history-filter">
+          <select id="filterCategoryMonthly">
+            <option value="">全カテゴリ</option>
+            <option value="消耗品費">消耗品費</option>
+            <option value="旅費交通費">旅費交通費</option>
+            <option value="通信費">通信費</option>
+            <option value="接待交際費">接待交際費</option>
+            <option value="会議費">会議費</option>
+            <option value="地代家賃">地代家賃</option>
+            <option value="水道光熱費">水道光熱費</option>
+            <option value="外注工賃">外注工賃</option>
+            <option value="雑費">雑費</option>
+            <option value="その他">その他</option>
+          </select>
+        </div>
+        <div id="monthlyView"></div>
+      </div>
+      <!-- 年別タブ -->
+      <div class="tab-content" id="tabYearly">
+        <div id="yearlyView"></div>
+      </div>
+      <a class="sheet-link" id="sheetLink" href="#" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        スプレッドシートを開く
+      </a>
+    </section>
+
+    <!-- 編集モーダル -->
+    <div class="modal-overlay hidden" id="editModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>レコード編集</h2>
+          <button class="btn-icon" id="closeEditModalBtn" title="閉じる">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="settings-body">
+          <label>店舗名 <input type="text" id="editStore"></label>
+          <div class="form-row">
+            <label class="form-half">日付 <input type="date" id="editDate"></label>
+            <label class="form-half">金額 <input type="number" id="editAmount" min="0"></label>
+          </div>
+          <label>勘定科目
+            <select id="editCategory">
+              <option value="消耗品費">消耗品費</option>
+              <option value="旅費交通費">旅費交通費</option>
+              <option value="通信費">通信費</option>
+              <option value="接待交際費">接待交際費</option>
+              <option value="会議費">会議費</option>
+              <option value="新聞図書費">新聞図書費</option>
+              <option value="地代家賃">地代家賃</option>
+              <option value="水道光熱費">水道光熱費</option>
+              <option value="修繕費">修繕費</option>
+              <option value="外注工賃">外注工賃</option>
+              <option value="広告宣伝費">広告宣伝費</option>
+              <option value="福利厚生費">福利厚生費</option>
+              <option value="雑費">雑費</option>
+              <option value="その他">その他</option>
+            </select>
+          </label>
+          <label>メモ <input type="text" id="editMemo"></label>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="editSaveBtn">更新</button>
+            <button class="btn btn-danger" id="editDeleteBtn">削除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- トースト通知 -->
+    <div class="toast-container" id="toastContainer"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/heic-to@1.4.2/dist/iife/heic-to.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="app.js?v=7"></script>
+</body>
+</html>
