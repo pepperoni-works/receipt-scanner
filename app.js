@@ -89,9 +89,14 @@ loadSettings();
 // URLに#config=...が付いていたら設定を復元
 function importSettingsFromUrl() {
   const hash = window.location.hash;
-  if (!hash.startsWith('#config=')) return false;
+  if (!hash.startsWith('#cfg=') && !hash.startsWith('#config=')) return false;
   try {
-    const json = decodeURIComponent(hash.slice('#config='.length));
+    let json;
+    if (hash.startsWith('#cfg=')) {
+      json = decodeURIComponent(escape(atob(hash.slice('#cfg='.length))));
+    } else {
+      json = decodeURIComponent(hash.slice('#config='.length));
+    }
     const cfg = JSON.parse(json);
     if (cfg.apiKey) { localStorage.setItem('receipt_api_key', cfg.apiKey); apiKeyInput.value = cfg.apiKey; }
     if (cfg.gasUrl) { localStorage.setItem('receipt_gas_url', cfg.gasUrl); gasUrlInput.value = cfg.gasUrl; }
@@ -119,7 +124,7 @@ function updateQR() {
     sheetUrl: localStorage.getItem('receipt_sheet_url') || ''
   };
   let base = 'https://pepperoni-works.github.io/receipt-scanner/';
-  const shareUrl = base + '#config=' + encodeURIComponent(JSON.stringify(cfg));
+  const shareUrl = base + '#cfg=' + btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
   try {
     const qr = qrcode(0, 'L');
     qr.addData(shareUrl);
@@ -257,7 +262,8 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({success:false,error:err.message})).setMimeType(ContentService.MimeType.JSON);
   }
 }
-function findRow(sheet,data){const lr=sheet.getLastRow();if(lr<=1)return -1;const rows=sheet.getRange(2,1,lr-1,14).getValues();for(let i=0;i<rows.length;i++){if(String(rows[i][0])===String(data.date)&&String(rows[i][1])===String(data.store)&&Number(rows[i][2])===Number(data.amount)&&String(rows[i][13])===String(data.createdAt))return i+2;}return -1;}
+function normDate(v){if(v instanceof Date){var y=v.getFullYear(),m=('0'+(v.getMonth()+1)).slice(-2),d=('0'+v.getDate()).slice(-2);return y+'-'+m+'-'+d;}var s=String(v),p=s.match(/(\\d{4})[\\/-](\\d{1,2})[\\/-](\\d{1,2})/);return p?p[1]+'-'+('0'+p[2]).slice(-2)+'-'+('0'+p[3]).slice(-2):s;}
+function findRow(sheet,data){const lr=sheet.getLastRow();if(lr<=1)return -1;const rows=sheet.getRange(2,1,lr-1,14).getValues();const td=normDate(data.date);for(let i=0;i<rows.length;i++){if(normDate(rows[i][0])===td&&String(rows[i][1])===String(data.store)&&Number(rows[i][2])===Number(data.amount))return i+2;}return -1;}
 function handleDelete(sheet,data){const row=findRow(sheet,data);if(row<0)return ContentService.createTextOutput(JSON.stringify({success:false,error:'行が見つかりません'})).setMimeType(ContentService.MimeType.JSON);sheet.deleteRow(row);updateMonthlySummary();return ContentService.createTextOutput(JSON.stringify({success:true})).setMimeType(ContentService.MimeType.JSON);}
 function handleUpdate(sheet,data){const row=findRow(sheet,data);if(row<0)return ContentService.createTextOutput(JSON.stringify({success:false,error:'行が見つかりません'})).setMimeType(ContentService.MimeType.JSON);const u=data.updated,amt=Number(u.amount)||0;sheet.getRange(row,1,1,14).setValues([[u.date,u.store,amt,u.category||'雑費',u.taxRate||'',u.payment||'',u.invoice||'',u.memo||'',u.expenseType||'事業',(Number(u.proration)||100)+'%',Number(u.exTax)||0,Number(u.tax)||0,Number(u.businessAmount)||amt,data.createdAt]]);const lr=sheet.getLastRow();if(lr>2)sheet.getRange(2,1,lr-1,14).sort({column:1,ascending:true});updateMonthlySummary();return ContentService.createTextOutput(JSON.stringify({success:true})).setMimeType(ContentService.MimeType.JSON);}
 function doGet(e) {
