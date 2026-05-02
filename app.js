@@ -89,9 +89,14 @@ loadSettings();
 // URLに#config=...が付いていたら設定を復元
 function importSettingsFromUrl() {
   const hash = window.location.hash;
-  if (!hash.startsWith('#config=')) return false;
+  if (!hash.startsWith('#cfg=') && !hash.startsWith('#config=')) return false;
   try {
-    const json = decodeURIComponent(hash.slice('#config='.length));
+    let json;
+    if (hash.startsWith('#cfg=')) {
+      json = decodeURIComponent(escape(atob(hash.slice('#cfg='.length))));
+    } else {
+      json = decodeURIComponent(hash.slice('#config='.length));
+    }
     const cfg = JSON.parse(json);
     if (cfg.apiKey) { localStorage.setItem('receipt_api_key', cfg.apiKey); apiKeyInput.value = cfg.apiKey; }
     if (cfg.gasUrl) { localStorage.setItem('receipt_gas_url', cfg.gasUrl); gasUrlInput.value = cfg.gasUrl; }
@@ -118,11 +123,8 @@ function updateQR() {
     gasUrl: getGasUrl(),
     sheetUrl: localStorage.getItem('receipt_sheet_url') || ''
   };
-  let base = window.location.origin + window.location.pathname;
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    base = `http://192.168.0.182:${window.location.port}` + window.location.pathname;
-  }
-  const shareUrl = base + '#config=' + encodeURIComponent(JSON.stringify(cfg));
+  let base = 'https://pepperoni-works.github.io/receipt-scanner/';
+  const shareUrl = base + '#cfg=' + btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
   try {
     const qr = qrcode(0, 'L');
     qr.addData(shareUrl);
@@ -235,36 +237,41 @@ saveAndCheckBtn.addEventListener('click', async () => {
 });
 
 // --- GAS Code Display ---
-const GAS_CODE = `// 確定申告対応版（編集・削除対応）
+const GAS_CODE = `// 確定申告対応版（編集・削除・画像保存対応）
 const SHEET_ID = 'ここにスプレッドシートIDを貼り付け';
 const SHEET_NAME = 'Sheet1';
 const SUMMARY_SHEET_NAME = '月別集計';
-
+const DRIVE_FOLDER_NAME = 'レシート画像';
+const COLS = 15;
+function getOrCreateFolder(){const f=DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);if(f.hasNext())return f.next();return DriveApp.createFolder(DRIVE_FOLDER_NAME);}
+function saveImageToDrive(b64,type,name){const f=getOrCreateFolder(),d=Utilities.base64Decode(b64),ext=(type||'image/jpeg').split('/')[1]||'jpg',safe=(name||'receipt').replace(/[\\/\\\\:*?"<>|]/g,'_')+'.'+ext;const blob=Utilities.newBlob(d,type||'image/jpeg',safe),file=f.createFile(blob);file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);return file.getUrl();}
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
     const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
     if (data.action==='delete') return handleDelete(sheet,data);
     if (data.action==='update') return handleUpdate(sheet,data);
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(['日付','店舗名','金額（税込）','勘定科目','税区分','支払方法','インボイス番号','メモ','経費区分','按分率','税抜金額','消費税額','経費算入額','登録日時']);
-      sheet.getRange(1,1,1,14).setFontWeight('bold');
+    if (sheet.getLastRow()===0) {
+      sheet.appendRow(['日付','店舗名','金額（税込）','勘定科目','税区分','支払方法','インボイス番号','メモ','経費区分','按分率','税抜金額','消費税額','経費算入額','登録日時','画像URL']);
+      sheet.getRange(1,1,1,COLS).setFontWeight('bold');
     }
-    const amt = Number(data.amount)||0;
-    sheet.appendRow([data.date, data.store, amt, data.category||'雑費', data.taxRate||'', data.payment||'', data.invoice||'', data.memo||'', data.expenseType||'事業', (Number(data.proration)||100)+'%', Number(data.exTax)||0, Number(data.tax)||0, Number(data.businessAmount)||amt, new Date().toLocaleString('ja-JP')]);
-    const lr = sheet.getLastRow();
-    if(lr>2) sheet.getRange(2,1,lr-1,14).sort({column:1,ascending:true});
+    let driveUrl='';
+    if(data.imageBase64){const fn=data.date+'_'+(data.store||'receipt')+'_'+(data.amount||0);driveUrl=saveImageToDrive(data.imageBase64,data.imageMediaType||'image/jpeg',fn);}
+    const amt=Number(data.amount)||0;
+    sheet.appendRow([data.date,data.store,amt,data.category||'雑費',data.taxRate||'',data.payment||'',data.invoice||'',data.memo||'',data.expenseType||'事業',(Number(data.proration)||100)+'%',Number(data.exTax)||0,Number(data.tax)||0,Number(data.businessAmount)||amt,new Date().toLocaleString('ja-JP'),driveUrl]);
+    const lr=sheet.getLastRow();if(lr>2)sheet.getRange(2,1,lr-1,COLS).sort({column:1,ascending:true});
     updateMonthlySummary();
-    return ContentService.createTextOutput(JSON.stringify({success:true})).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({success:true,driveUrl:driveUrl})).setMimeType(ContentService.MimeType.JSON);
   } catch(err) {
     return ContentService.createTextOutput(JSON.stringify({success:false,error:err.message})).setMimeType(ContentService.MimeType.JSON);
   }
 }
-function findRow(sheet,data){const lr=sheet.getLastRow();if(lr<=1)return -1;const rows=sheet.getRange(2,1,lr-1,14).getValues();for(let i=0;i<rows.length;i++){if(String(rows[i][0])===String(data.date)&&String(rows[i][1])===String(data.store)&&Number(rows[i][2])===Number(data.amount)&&String(rows[i][13])===String(data.createdAt))return i+2;}return -1;}
+function normDate(v){if(v instanceof Date){var y=v.getFullYear(),m=('0'+(v.getMonth()+1)).slice(-2),d=('0'+v.getDate()).slice(-2);return y+'-'+m+'-'+d;}var s=String(v),p=s.match(/(\\d{4})[\\/-](\\d{1,2})[\\/-](\\d{1,2})/);return p?p[1]+'-'+('0'+p[2]).slice(-2)+'-'+('0'+p[3]).slice(-2):s;}
+function findRow(sheet,data){const lr=sheet.getLastRow();if(lr<=1)return -1;const rows=sheet.getRange(2,1,lr-1,COLS).getValues();const td=normDate(data.date);for(let i=0;i<rows.length;i++){if(normDate(rows[i][0])===td&&String(rows[i][1])===String(data.store)&&Number(rows[i][2])===Number(data.amount))return i+2;}return -1;}
 function handleDelete(sheet,data){const row=findRow(sheet,data);if(row<0)return ContentService.createTextOutput(JSON.stringify({success:false,error:'行が見つかりません'})).setMimeType(ContentService.MimeType.JSON);sheet.deleteRow(row);updateMonthlySummary();return ContentService.createTextOutput(JSON.stringify({success:true})).setMimeType(ContentService.MimeType.JSON);}
-function handleUpdate(sheet,data){const row=findRow(sheet,data);if(row<0)return ContentService.createTextOutput(JSON.stringify({success:false,error:'行が見つかりません'})).setMimeType(ContentService.MimeType.JSON);const u=data.updated,amt=Number(u.amount)||0;sheet.getRange(row,1,1,14).setValues([[u.date,u.store,amt,u.category||'雑費',u.taxRate||'',u.payment||'',u.invoice||'',u.memo||'',u.expenseType||'事業',(Number(u.proration)||100)+'%',Number(u.exTax)||0,Number(u.tax)||0,Number(u.businessAmount)||amt,data.createdAt]]);const lr=sheet.getLastRow();if(lr>2)sheet.getRange(2,1,lr-1,14).sort({column:1,ascending:true});updateMonthlySummary();return ContentService.createTextOutput(JSON.stringify({success:true})).setMimeType(ContentService.MimeType.JSON);}
+function handleUpdate(sheet,data){const row=findRow(sheet,data);if(row<0)return ContentService.createTextOutput(JSON.stringify({success:false,error:'行が見つかりません'})).setMimeType(ContentService.MimeType.JSON);const u=data.updated,amt=Number(u.amount)||0;const eu=sheet.getRange(row,COLS).getValue()||'';sheet.getRange(row,1,1,COLS).setValues([[u.date,u.store,amt,u.category||'雑費',u.taxRate||'',u.payment||'',u.invoice||'',u.memo||'',u.expenseType||'事業',(Number(u.proration)||100)+'%',Number(u.exTax)||0,Number(u.tax)||0,Number(u.businessAmount)||amt,data.createdAt,eu]]);const lr=sheet.getLastRow();if(lr>2)sheet.getRange(2,1,lr-1,COLS).sort({column:1,ascending:true});updateMonthlySummary();return ContentService.createTextOutput(JSON.stringify({success:true})).setMimeType(ContentService.MimeType.JSON);}
 function doGet(e) {
-  const action = (e&&e.parameter&&e.parameter.action)||'records';
+  const action=(e&&e.parameter&&e.parameter.action)||'records';
   try {
     if(action==='gmail') return handleGmailSearch(e);
     if(action==='gmail_read') return handleGmailRead(e);
@@ -275,34 +282,30 @@ function doGet(e) {
   }
 }
 function handleGetRecords() {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
-  const lr = sheet.getLastRow();
+  const sheet=SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);const lr=sheet.getLastRow();
   if(lr<=1) return ContentService.createTextOutput(JSON.stringify({success:true,records:[]})).setMimeType(ContentService.MimeType.JSON);
-  const data = sheet.getRange(2,1,lr-1,14).getValues();
-  const records = data.map(r=>({date:r[0],store:r[1],amount:r[2],category:r[3],taxRate:r[4],payment:r[5],invoice:r[6],memo:r[7],expenseType:r[8],proration:r[9],exTax:r[10],tax:r[11],businessAmount:r[12],createdAt:r[13]})).reverse();
+  const cols=Math.max(sheet.getLastColumn(),COLS),data=sheet.getRange(2,1,lr-1,cols).getValues();
+  const records=data.map(r=>({date:r[0],store:r[1],amount:r[2],category:r[3],taxRate:r[4],payment:r[5],invoice:r[6],memo:r[7],expenseType:r[8],proration:r[9],exTax:r[10],tax:r[11],businessAmount:r[12],createdAt:r[13],driveUrl:r[14]||''})).reverse();
   return ContentService.createTextOutput(JSON.stringify({success:true,records:records})).setMimeType(ContentService.MimeType.JSON);
 }
 function updateMonthlySummary() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  let sm = ss.getSheetByName(SUMMARY_SHEET_NAME);
-  if(!sm) sm = ss.insertSheet(SUMMARY_SHEET_NAME);
-  sm.clear();
-  const ds = ss.getSheetByName(SHEET_NAME); const lr = ds.getLastRow();
-  if(lr<=1) return;
-  const data = ds.getRange(2,1,lr-1,14).getValues();
-  const monthly={}, cats=new Set();
+  const ss=SpreadsheetApp.openById(SHEET_ID);let sm=ss.getSheetByName(SUMMARY_SHEET_NAME);if(!sm)sm=ss.insertSheet(SUMMARY_SHEET_NAME);sm.clear();
+  const ds=ss.getSheetByName(SHEET_NAME);const lr=ds.getLastRow();if(lr<=1)return;
+  const data=ds.getRange(2,1,lr-1,COLS).getValues();const monthly={},cats=new Set();
   data.forEach(r=>{const d=String(r[0]),m=d.match(/(\\d{4})[\\/-](\\d{1,2})/);if(!m)return;const k=m[1]+'-'+m[2].padStart(2,'0'),c=r[3]||'雑費',ba=Number(r[12])||0;cats.add(c);if(!monthly[k])monthly[k]={total:0,tax:0,cats:{}};monthly[k].total+=ba;monthly[k].tax+=Number(r[11])||0;monthly[k].cats[c]=(monthly[k].cats[c]||0)+ba;});
   const ms=Object.keys(monthly).sort(),cs=[...cats].sort();
   sm.appendRow(['月','経費合計','消費税合計',...cs]);sm.getRange(1,1,1,cs.length+3).setFontWeight('bold');
   ms.forEach(m=>{const g=monthly[m],[y,mo]=m.split('-');const row=[y+'年'+parseInt(mo)+'月',g.total,g.tax];cs.forEach(c=>row.push(g.cats[c]||0));sm.appendRow(row);});
   const tr=['合計',ms.reduce((s,m)=>s+monthly[m].total,0),ms.reduce((s,m)=>s+monthly[m].tax,0)];cs.forEach(c=>tr.push(ms.reduce((s,m)=>s+(monthly[m].cats[c]||0),0)));sm.appendRow(tr);
   sm.getRange(sm.getLastRow(),1,1,cs.length+3).setFontWeight('bold');
-  if(ms.length>0) sm.getRange(2,2,sm.getLastRow()-1,cs.length+2).setNumberFormat('#,##0');
+  if(ms.length>0)sm.getRange(2,2,sm.getLastRow()-1,cs.length+2).setNumberFormat('#,##0');
 }
 function handleGmailSearch(e) {
-  const uq=(e.parameter.q||'').trim();const query=uq?uq:'(レシート OR 領収書 OR 注文確認 OR ご利用明細 OR receipt OR order)';
-  const threads=GmailApp.search(query,0,10);
-  const emails=threads.map(t=>{const m=t.getMessages()[t.getMessageCount()-1];return{id:m.getId(),subject:m.getSubject(),from:m.getFrom(),date:m.getDate().toISOString(),snippet:m.getPlainBody().substring(0,150)};});
+  const uq=(e.parameter.q||'').trim();const days=parseInt(e.parameter.days)||0;const limit=Math.min(parseInt(e.parameter.limit)||10,50);
+  let query=uq?uq:'(レシート OR 領収書 OR 注文確認 OR ご利用明細 OR receipt OR order OR invoice OR ご請求 OR 決済完了)';
+  if(days>0)query+=' newer_than:'+days+'d';
+  const threads=GmailApp.search(query,0,limit);
+  const emails=threads.map(t=>{const m=t.getMessages()[t.getMessageCount()-1];return{id:m.getId(),subject:m.getSubject(),from:m.getFrom(),date:m.getDate().toISOString(),snippet:m.getPlainBody().substring(0,300)};});
   return ContentService.createTextOutput(JSON.stringify({success:true,emails:emails})).setMimeType(ContentService.MimeType.JSON);
 }
 function handleGmailRead(e) {
@@ -791,6 +794,270 @@ ${emailText.substring(0, 4000)}`
   }
 }
 
+// --- 週次Gmail自動チェック ---
+const weeklyScanBtn = document.getElementById('weeklyScanBtn');
+const weeklyMeta = document.getElementById('weeklyMeta');
+const weeklyReview = document.getElementById('weeklyReview');
+const weeklyList = document.getElementById('weeklyList');
+const weeklyCount = document.getElementById('weeklyCount');
+const weeklySelectAllBtn = document.getElementById('weeklySelectAllBtn');
+const weeklyDeselectAllBtn = document.getElementById('weeklyDeselectAllBtn');
+const weeklyImportBtn = document.getElementById('weeklyImportBtn');
+
+let weeklyCandidates = []; // {checked, confidence, store, date, amount, category, taxRate, payment, invoice, memo, emailId, emailSubject}
+
+function updateWeeklyMeta() {
+  const last = localStorage.getItem('receipt_last_weekly_scan');
+  if (!last) {
+    weeklyMeta.textContent = 'まだ実行されていません';
+    return;
+  }
+  const lastDate = new Date(last);
+  const days = Math.floor((Date.now() - lastDate.getTime()) / 86400000);
+  const dStr = lastDate.toLocaleDateString('ja-JP');
+  if (days >= 7) {
+    weeklyMeta.innerHTML = `前回: ${dStr}（${days}日経過）<br><strong>そろそろチェック推奨</strong>`;
+  } else {
+    weeklyMeta.textContent = `前回: ${dStr}（${days}日前）`;
+  }
+}
+updateWeeklyMeta();
+
+weeklyScanBtn.addEventListener('click', runWeeklyScan);
+
+async function runWeeklyScan() {
+  const apiKey = getApiKey();
+  if (!apiKey) { showToast('API Keyを設定してください', 'error'); return; }
+  const gasUrl = getGasUrl();
+  if (!gasUrl) { showToast('GAS URLを設定してください', 'error'); return; }
+
+  weeklyScanBtn.disabled = true;
+  const origText = weeklyScanBtn.innerHTML;
+  weeklyScanBtn.textContent = 'メール取得中...';
+  weeklyReview.classList.add('hidden');
+
+  try {
+    // 1. 過去7日間のメール取得（最大50件）
+    const res = await fetch(`${gasUrl}?action=gmail&days=7&limit=50`, { redirect: 'follow' });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Gmail検索失敗');
+
+    if (!data.emails || data.emails.length === 0) {
+      showToast('過去7日間に該当メールはありません', 'success');
+      return;
+    }
+
+    weeklyScanBtn.textContent = `AI分類中... (${data.emails.length}件)`;
+
+    // 2. AI一括分類＋抽出
+    const candidates = await classifyAndExtractEmails(apiKey, data.emails);
+
+    if (candidates.length === 0) {
+      showToast('レシート候補が見つかりませんでした', 'success');
+      localStorage.setItem('receipt_last_weekly_scan', new Date().toISOString());
+      updateWeeklyMeta();
+      return;
+    }
+
+    // 3. 重複チェック（既存allRecordsとマッチしたら自動で除外）
+    weeklyCandidates = candidates.map(c => ({
+      ...c,
+      checked: c.confidence === 'high' && !isDuplicate(c),
+      duplicate: isDuplicate(c)
+    }));
+
+    renderWeeklyList();
+    weeklyReview.classList.remove('hidden');
+    localStorage.setItem('receipt_last_weekly_scan', new Date().toISOString());
+    updateWeeklyMeta();
+  } catch (err) {
+    console.error('週次チェックエラー:', err);
+    showToast('チェック失敗: ' + err.message, 'error');
+  } finally {
+    weeklyScanBtn.disabled = false;
+    weeklyScanBtn.innerHTML = origText;
+  }
+}
+
+function isDuplicate(c) {
+  if (!c.date || !c.store || !c.amount) return false;
+  return allRecords.some(r =>
+    String(r.store) === String(c.store) &&
+    Number(r.amount) === Number(c.amount) &&
+    String(r.date).substring(0, 10) === String(c.date).substring(0, 10)
+  );
+}
+
+async function classifyAndExtractEmails(apiKey, emails) {
+  const today = new Date().toISOString().split('T')[0];
+  // メールのタイトル+送信元+スニペットを一括投入
+  const emailList = emails.map((e, i) => `[${i}] 件名: ${e.subject}\n送信元: ${e.from}\n本文抜粋: ${e.snippet}`).join('\n\n---\n\n');
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: `以下は最近のメール一覧です。各メールについて、領収書・レシート・注文確認・請求書（経費として記録すべきもの）かを判定し、該当するものだけ情報を抽出してください。
+広告メール、ニュースレター、配送通知、未確定の予約確認等は除外してください。
+
+JSON配列のみで返答（前置き・後書きなし）：
+[
+  {
+    "index": 該当メールの番号,
+    "confidence": "high"|"medium"|"low",
+    "store": "店舗名・サービス名",
+    "date": "YYYY-MM-DD（不明なら${today}）",
+    "amount": 数値（税込合計、不明なら null）,
+    "category": "勘定科目（消耗品費/旅費交通費/通信費/接待交際費/会議費/新聞図書費/地代家賃/水道光熱費/外注工賃/広告宣伝費/福利厚生費/雑費/その他）",
+    "taxRate": "10%/8%/混在/不明",
+    "payment": "現金/クレジットカード/電子マネー/QRコード決済/その他/不明",
+    "invoice": "T+13桁",
+    "memo": "特記事項"
+  }
+]
+
+該当メール（経費メール）のみJSON配列に含めてください。amountが取得できないものは confidence:"low" にしてください。
+
+メール一覧:
+${emailList}`
+      }]
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API Error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.content[0].text.trim();
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new Error('AI応答からJSONを抽出できませんでした');
+
+  const results = JSON.parse(jsonMatch[0]);
+  return results.filter(r => r && typeof r.index === 'number' && emails[r.index]).map(r => ({
+    confidence: r.confidence || 'medium',
+    store: r.store || '',
+    date: r.date || today,
+    amount: r.amount || '',
+    category: r.category || '雑費',
+    taxRate: r.taxRate || '不明',
+    payment: r.payment || '不明',
+    invoice: r.invoice || '',
+    memo: r.memo || '',
+    emailId: emails[r.index].id,
+    emailSubject: emails[r.index].subject,
+    emailFrom: emails[r.index].from
+  }));
+}
+
+function renderWeeklyList() {
+  weeklyCount.textContent = `${weeklyCandidates.length}件（${weeklyCandidates.filter(c => c.checked).length}件選択中）`;
+  weeklyList.innerHTML = weeklyCandidates.map((c, i) => {
+    const confLabel = { high: '確度高', medium: '確度中', low: '確度低' }[c.confidence] || '';
+    const confClass = c.confidence;
+    const dupBadge = c.duplicate ? '<span class="weekly-confidence" style="background:#ef444433;color:#ef4444">重複</span>' : '';
+    const amtStr = c.amount ? `&yen;${Number(c.amount).toLocaleString()}` : '<em>金額不明</em>';
+    return `<div class="weekly-item ${c.confidence === 'low' ? 'confidence-low' : ''}" data-idx="${i}">
+      <input type="checkbox" data-idx="${i}" ${c.checked ? 'checked' : ''}>
+      <div class="weekly-item-body">
+        <div class="weekly-item-store">
+          <span class="weekly-confidence ${confClass}">${confLabel}</span>${dupBadge}${escapeHtml(c.store || c.emailSubject || '(不明)')}
+        </div>
+        <div class="weekly-item-meta">${formatDate(c.date)} · ${escapeHtml(c.category)} · <span class="weekly-item-edit" data-idx="${i}">編集</span></div>
+      </div>
+      <div class="weekly-item-amount">${amtStr}</div>
+    </div>`;
+  }).join('');
+
+  weeklyList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      weeklyCandidates[Number(cb.dataset.idx)].checked = cb.checked;
+      weeklyCount.textContent = `${weeklyCandidates.length}件（${weeklyCandidates.filter(c => c.checked).length}件選択中）`;
+    });
+  });
+  weeklyList.querySelectorAll('.weekly-item-edit').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openWeeklyEdit(Number(el.dataset.idx));
+    });
+  });
+}
+
+function openWeeklyEdit(idx) {
+  const c = weeklyCandidates[idx];
+  // 編集モーダルを再利用
+  editingRecord = null; // 通常編集と区別
+  document.getElementById('editStore').value = c.store || '';
+  document.getElementById('editDate').value = c.date || new Date().toISOString().split('T')[0];
+  document.getElementById('editAmount').value = c.amount || '';
+  document.getElementById('editCategory').value = c.category || '雑費';
+  document.getElementById('editMemo').value = c.memo || '';
+  document.getElementById('editExpenseType').value = '事業';
+  document.getElementById('editProration').value = 100;
+  // 削除ボタンを「キャンセル」に
+  editDeleteBtn.textContent = 'キャンセル';
+  editSaveBtn.textContent = '反映';
+  editingWeeklyIdx = idx;
+  editModal.classList.remove('hidden');
+}
+
+let editingWeeklyIdx = -1;
+
+weeklySelectAllBtn.addEventListener('click', () => {
+  weeklyCandidates.forEach(c => c.checked = true);
+  renderWeeklyList();
+});
+weeklyDeselectAllBtn.addEventListener('click', () => {
+  weeklyCandidates.forEach(c => c.checked = false);
+  renderWeeklyList();
+});
+
+weeklyImportBtn.addEventListener('click', async () => {
+  const selected = weeklyCandidates.filter(c => c.checked);
+  if (selected.length === 0) { showToast('項目を選択してください', 'error'); return; }
+  const gasUrl = getGasUrl();
+  if (!gasUrl) { showToast('GAS URLを設定してください', 'error'); return; }
+  if (!confirm(`${selected.length}件をスプレッドシートに登録します。よろしいですか？`)) return;
+
+  weeklyImportBtn.disabled = true;
+  let saved = 0;
+  for (const c of selected) {
+    const amount = Number(c.amount) || 0;
+    if (amount <= 0) continue;
+    const taxRate = c.taxRate === '8%' ? 0.08 : (c.taxRate === '非課税' ? 0 : 0.10);
+    const exTax = Math.round(amount / (1 + taxRate));
+    weeklyImportBtn.textContent = `保存中 ${saved + 1}/${selected.length}...`;
+    await fetch(gasUrl, {
+      method: 'POST', mode: 'no-cors',
+      body: JSON.stringify({
+        date: c.date, store: c.store, amount: amount,
+        category: c.category, taxRate: c.taxRate, payment: c.payment,
+        invoice: c.invoice, memo: c.memo, expenseType: '事業',
+        proration: 100, exTax: exTax, tax: amount - exTax,
+        businessAmount: amount
+      })
+    });
+    saved++;
+  }
+
+  weeklyImportBtn.disabled = false;
+  weeklyImportBtn.textContent = '選択した項目を登録';
+  showToast(`${saved}件を登録しました`);
+  weeklyReview.classList.add('hidden');
+  weeklyCandidates = [];
+  setTimeout(fetchAllHistory, 2000);
+});
+
 // --- Image Handling ---
 const API_SUPPORTED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const HEIC_TYPES = ['image/heic', 'image/heif'];
@@ -946,6 +1213,8 @@ function resetToUpload() {
   previewSection.classList.add('hidden');
   editSection.classList.add('hidden');
   analyzingIndicator.classList.add('hidden');
+  const errEl = document.getElementById('analyzeError');
+  if (errEl) errEl.classList.add('hidden');
   uploadSection.classList.remove('hidden');
   // メイン入力に戻す
   inputMain.classList.remove('hidden');
@@ -959,46 +1228,31 @@ function resetToUpload() {
 }
 
 // --- Anthropic API ---
-async function analyzeReceipt() {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    showToast('API Keyを設定してください', 'error');
-    settingsModal.classList.remove('hidden');
-    resetToUpload();
-    return;
-  }
+const analyzeError = document.getElementById('analyzeError');
+const analyzeErrorMsg = document.getElementById('analyzeErrorMsg');
+const retryAnalyzeBtn = document.getElementById('retryAnalyzeBtn');
+const manualEntryBtn = document.getElementById('manualEntryBtn');
+const retryInfo = document.getElementById('retryInfo');
 
-  analyzingIndicator.classList.remove('hidden');
-  analyzingIndicator.querySelector('p').textContent = 'AIが解析中...';
-
-  const today = new Date().toISOString().split('T')[0];
-
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: currentMediaType,
-                data: currentBase64
-              }
-            },
-            {
-              type: 'text',
-              text: `このレシート画像から情報を抽出してください。JSON形式のみで返答してください（前置き・後書きなし）:
+async function callAnthropicForReceipt(apiKey, today) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: currentMediaType, data: currentBase64 } },
+          {
+            type: 'text',
+            text: `このレシート画像から情報を抽出してください。JSON形式のみで返答してください（前置き・後書きなし）:
 {
   "store": "店舗名",
   "date": "YYYY-MM-DD形式の日付（不明な場合は${today}）",
@@ -1009,34 +1263,88 @@ async function analyzeReceipt() {
   "invoice": "インボイス登録番号（T+13桁の番号がレシートに印字されていれば。なければ空文字）",
   "memo": "レシートの特記事項があれば"
 }`
-            }
-          ]
-        }]
-      })
-    });
+          }
+        ]
+      }]
+    })
+  });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error?.message || `API Error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const text = data.content[0].text.trim();
-
-    // JSONを抽出（コードブロックで囲まれている場合にも対応）
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('AIの応答からJSONを抽出できませんでした');
-
-    const result = JSON.parse(jsonMatch[0]);
-    populateForm(result);
-  } catch (err) {
-    console.error('解析エラー:', err);
-    showToast(`解析失敗: ${err.message}`, 'error');
-    resetToUpload();
-  } finally {
-    analyzingIndicator.classList.add('hidden');
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    const error = new Error(err.error?.message || `API Error: ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
+
+  const data = await response.json();
+  const text = data.content[0].text.trim();
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('AIの応答からJSONを抽出できませんでした');
+  return JSON.parse(jsonMatch[0]);
 }
+
+function isRetryableError(err) {
+  // 4xx系（401/400など）はリトライ無意味。ネットワークエラー or 5xx or 429のみリトライ
+  if (err.status && err.status >= 400 && err.status < 500 && err.status !== 429) return false;
+  return true;
+}
+
+async function analyzeReceipt(isRetry = false) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    showToast('API Keyを設定してください', 'error');
+    settingsModal.classList.remove('hidden');
+    resetToUpload();
+    return;
+  }
+
+  analyzeError.classList.add('hidden');
+  analyzingIndicator.classList.remove('hidden');
+  analyzingIndicator.querySelector('p').textContent = 'AIが解析中...';
+  retryInfo.classList.add('hidden');
+
+  const today = new Date().toISOString().split('T')[0];
+  const maxAttempts = 3;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      if (attempt > 1) {
+        retryInfo.classList.remove('hidden');
+        retryInfo.textContent = `通信エラー、リトライ中... (${attempt}/${maxAttempts})`;
+      }
+      const result = await callAnthropicForReceipt(apiKey, today);
+      analyzingIndicator.classList.add('hidden');
+      populateForm(result);
+      return;
+    } catch (err) {
+      console.error(`解析エラー (attempt ${attempt}):`, err);
+      lastError = err;
+      if (!isRetryableError(err) || attempt === maxAttempts) break;
+      // 指数バックオフ: 1秒, 2秒
+      await new Promise(r => setTimeout(r, 1000 * attempt));
+    }
+  }
+
+  // すべて失敗：画像とフォームは保持して再試行/手動入力を提示
+  analyzingIndicator.classList.add('hidden');
+  analyzeErrorMsg.textContent = `解析失敗: ${lastError?.message || '不明なエラー'}`;
+  analyzeError.classList.remove('hidden');
+  showToast('解析失敗。再試行か手動入力してください', 'error');
+}
+
+retryAnalyzeBtn.addEventListener('click', () => {
+  if (currentBase64) analyzeReceipt(true);
+});
+
+manualEntryBtn.addEventListener('click', () => {
+  analyzeError.classList.add('hidden');
+  // 空のフォームを表示（今日の日付・雑費でデフォルト）
+  populateForm({
+    store: '', date: new Date().toISOString().split('T')[0], amount: '',
+    category: '雑費', taxRate: '不明', payment: '不明', invoice: '', memo: ''
+  });
+});
 
 const taxRateSelect = document.getElementById('taxRateSelect');
 const paymentSelect = document.getElementById('paymentSelect');
@@ -1204,7 +1512,16 @@ receiptForm.addEventListener('submit', async (e) => {
     businessAmount: Math.round(jpyAmount * proration / 100)
   };
 
+  // 画像データがあれば添付（電帳法対応：Google Driveに保存）
+  if (currentBase64) {
+    record.imageBase64 = currentBase64;
+    record.imageMediaType = currentMediaType;
+  }
+
   savingOverlay.classList.remove('hidden');
+  if (currentBase64) {
+    savingOverlay.querySelector('p').textContent = '画像をDriveに保存中...';
+  }
 
   try {
     // GAS WebアプリはPOST時に302リダイレクトするため、no-corsモードで送信
@@ -1215,7 +1532,7 @@ receiptForm.addEventListener('submit', async (e) => {
     });
     // no-corsではレスポンス内容を読めないため、エラーが投げられなければ成功とみなす
     addToHistory(record);
-    showToast('スプレッドシートに保存しました');
+    showToast(currentBase64 ? 'スプレッドシート＋Driveに保存しました' : 'スプレッドシートに保存しました');
     resetToUpload();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (err) {
@@ -1341,7 +1658,7 @@ function renderAllHistory(records) {
     return `<div class="history-item" data-ridx="${idx}">
       <div class="history-store">${escapeHtml(String(r.store))}</div>
       <div class="history-amount">&yen;${amt.toLocaleString()}${showProration ? '<small class="history-proration">(経費&yen;' + ba.toLocaleString() + ')</small>' : ''}</div>
-      <div class="history-meta">${formatDate(r.date)}${r.memo ? ' - ' + escapeHtml(String(r.memo)) : ''}</div>
+      <div class="history-meta">${formatDate(r.date)}${r.driveUrl ? ' <a href="' + escapeHtml(String(r.driveUrl)) + '" target="_blank" rel="noopener" class="drive-icon" title="画像を開く" onclick="event.stopPropagation()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></a>' : ''}${r.memo ? ' - ' + escapeHtml(String(r.memo)) : ''}</div>
       <div class="history-category">${escapeHtml(String(r.category))}</div>
     </div>`;
   }).join('');
@@ -1401,6 +1718,7 @@ function capitalize(s) {
 function refreshTabView() {
   if (currentTab === 'monthly') renderMonthlyView();
   if (currentTab === 'yearly') renderYearlyView();
+  if (currentTab === 'journal') renderJournalView();
 }
 
 // --- Monthly filter ---
@@ -1789,18 +2107,61 @@ function openEditModal(record) {
   document.getElementById('editAmount').value = record.amount || '';
   document.getElementById('editCategory').value = record.category || '雑費';
   document.getElementById('editMemo').value = record.memo || '';
+  document.getElementById('editExpenseType').value = record.expenseType || '事業';
+  // proration: "100%" 形式の文字列か数値が来る
+  const pr = record.proration;
+  const prNum = typeof pr === 'number' ? pr : (pr ? parseInt(String(pr)) : 100);
+  document.getElementById('editProration').value = isNaN(prNum) ? 100 : prNum;
   editModal.classList.remove('hidden');
 }
 
-closeEditModalBtn.addEventListener('click', () => editModal.classList.add('hidden'));
-editModal.addEventListener('click', (e) => { if (e.target === editModal) editModal.classList.add('hidden'); });
+function closeEditModal() {
+  editModal.classList.add('hidden');
+  if (editingWeeklyIdx >= 0) {
+    editingWeeklyIdx = -1;
+    editSaveBtn.textContent = '更新';
+    editDeleteBtn.textContent = '削除';
+  }
+}
+closeEditModalBtn.addEventListener('click', closeEditModal);
+editModal.addEventListener('click', (e) => { if (e.target === editModal) closeEditModal(); });
+
+// 経費区分の変更で按分率を自動連動
+document.getElementById('editExpenseType').addEventListener('change', (e) => {
+  const v = e.target.value;
+  const prInput = document.getElementById('editProration');
+  if (v === '事業') prInput.value = 100;
+  else if (v === '個人') prInput.value = 0;
+});
 
 editSaveBtn.addEventListener('click', async () => {
+  // 週次レビュー候補の編集モード
+  if (editingWeeklyIdx >= 0 && weeklyCandidates[editingWeeklyIdx]) {
+    const c = weeklyCandidates[editingWeeklyIdx];
+    c.store = document.getElementById('editStore').value;
+    c.date = document.getElementById('editDate').value;
+    c.amount = Number(document.getElementById('editAmount').value) || 0;
+    c.category = document.getElementById('editCategory').value;
+    c.memo = document.getElementById('editMemo').value;
+    editingWeeklyIdx = -1;
+    editSaveBtn.textContent = '更新';
+    editDeleteBtn.textContent = '削除';
+    editModal.classList.add('hidden');
+    renderWeeklyList();
+    return;
+  }
+
   if (!editingRecord) return;
   const gasUrl = getGasUrl();
   if (!gasUrl) { showToast('GAS URLを設定してください', 'error'); return; }
 
   const newAmount = Number(document.getElementById('editAmount').value) || 0;
+  const newExpenseType = document.getElementById('editExpenseType').value;
+  let newProration = Math.min(100, Math.max(0, Number(document.getElementById('editProration').value) || 0));
+  // 区分の連動：事業=100、個人=0、家事按分は手入力値そのまま
+  if (newExpenseType === '事業') newProration = 100;
+  else if (newExpenseType === '個人') newProration = 0;
+  const newBusinessAmount = Math.round(newAmount * newProration / 100);
   const updated = {
     date: document.getElementById('editDate').value,
     store: document.getElementById('editStore').value,
@@ -1810,11 +2171,11 @@ editSaveBtn.addEventListener('click', async () => {
     payment: editingRecord.payment || '',
     invoice: editingRecord.invoice || '',
     memo: document.getElementById('editMemo').value,
-    expenseType: editingRecord.expenseType || '事業',
-    proration: editingRecord.proration ? parseInt(editingRecord.proration) : 100,
+    expenseType: newExpenseType,
+    proration: newProration,
     exTax: Math.round(newAmount / 1.10),
     tax: newAmount - Math.round(newAmount / 1.10),
-    businessAmount: newAmount
+    businessAmount: newBusinessAmount
   };
 
   editSaveBtn.disabled = true;
@@ -1831,9 +2192,20 @@ editSaveBtn.addEventListener('click', async () => {
         updated: updated
       })
     });
+    // ローカルの allRecords も即時更新
+    const idx = allRecords.findIndex(r =>
+      String(r.store) === String(editingRecord.store) &&
+      Number(r.amount) === Number(editingRecord.amount) &&
+      String(r.date).substring(0,10) === String(editingRecord.date).substring(0,10)
+    );
+    if (idx >= 0) {
+      allRecords[idx] = { ...allRecords[idx], ...updated };
+    }
+    applyFilters();
+    refreshTabView();
     showToast('更新しました');
     editModal.classList.add('hidden');
-    setTimeout(fetchAllHistory, 1500);
+    setTimeout(fetchAllHistory, 3000);
   } catch (err) {
     showToast('更新失敗: ' + err.message, 'error');
   } finally {
@@ -1843,6 +2215,14 @@ editSaveBtn.addEventListener('click', async () => {
 });
 
 editDeleteBtn.addEventListener('click', async () => {
+  // 週次レビューの編集中は「キャンセル」として動作
+  if (editingWeeklyIdx >= 0) {
+    editingWeeklyIdx = -1;
+    editSaveBtn.textContent = '更新';
+    editDeleteBtn.textContent = '削除';
+    editModal.classList.add('hidden');
+    return;
+  }
   if (!editingRecord) return;
   if (!confirm('この記録を削除しますか？')) return;
   const gasUrl = getGasUrl();
@@ -1861,15 +2241,124 @@ editDeleteBtn.addEventListener('click', async () => {
         createdAt: String(editingRecord.createdAt)
       })
     });
+    // ローカルの allRecords から即時削除
+    const delIdx = allRecords.findIndex(r =>
+      String(r.store) === String(editingRecord.store) &&
+      Number(r.amount) === Number(editingRecord.amount) &&
+      String(r.date).substring(0,10) === String(editingRecord.date).substring(0,10)
+    );
+    if (delIdx >= 0) allRecords.splice(delIdx, 1);
+    applyFilters();
+    refreshTabView();
     showToast('削除しました');
     editModal.classList.add('hidden');
-    setTimeout(fetchAllHistory, 1500);
+    setTimeout(fetchAllHistory, 3000);
   } catch (err) {
     showToast('削除失敗: ' + err.message, 'error');
   } finally {
     editDeleteBtn.disabled = false;
     editDeleteBtn.textContent = '削除';
   }
+});
+
+// --- 複式簿記・仕訳帳 ---
+const PAYMENT_ACCOUNT_MAP = {
+  '現金': '現金',
+  'クレジットカード': '未払金',
+  '電子マネー': '現金',
+  'QRコード決済': '現金',
+  '銀行振込': '普通預金',
+  'その他': '現金',
+  '不明': '現金'
+};
+
+function generateJournalEntries(records) {
+  return records.map(r => {
+    const amount = Number(r.businessAmount) || Number(r.amount) || 0;
+    if (amount <= 0) return null;
+    const debitAccount = r.category || '雑費';
+    const creditAccount = PAYMENT_ACCOUNT_MAP[r.payment] || '現金';
+    const description = (r.store || '') + (r.memo ? ' ' + r.memo : '');
+    return {
+      date: formatDate(r.date),
+      debitAccount,
+      debitAmount: amount,
+      creditAccount,
+      creditAmount: amount,
+      description
+    };
+  }).filter(Boolean);
+}
+
+const journalYear = document.getElementById('journalYear');
+const journalCsvBtn = document.getElementById('journalCsvBtn');
+const journalPreview = document.getElementById('journalPreview');
+
+function renderJournalView() {
+  // 年ドロップダウンを更新
+  const years = [...new Set(allRecords.map(r => extractYear(r.date)).filter(Boolean))].sort().reverse();
+  const currentVal = journalYear.value;
+  journalYear.innerHTML = years.map(y => `<option value="${y}"${y === currentVal ? ' selected' : ''}>${y}年度</option>`).join('');
+  if (!journalYear.value && years.length > 0) journalYear.value = years[0];
+
+  const selectedYear = journalYear.value;
+  if (!selectedYear) {
+    journalPreview.innerHTML = '<p class="history-empty">データがありません</p>';
+    return;
+  }
+
+  const filtered = allRecords
+    .filter(r => extractYear(r.date) === selectedYear)
+    .sort((a, b) => String(a.date) < String(b.date) ? -1 : 1);
+  const entries = generateJournalEntries(filtered);
+
+  if (entries.length === 0) {
+    journalPreview.innerHTML = '<p class="history-empty">該当する仕訳がありません</p>';
+    return;
+  }
+
+  const totalAmount = entries.reduce((s, e) => s + e.debitAmount, 0);
+
+  const rows = entries.map(e => `<tr>
+    <td>${escapeHtml(e.date)}</td>
+    <td>${escapeHtml(e.debitAccount)}</td>
+    <td class="amount">&yen;${e.debitAmount.toLocaleString()}</td>
+    <td>${escapeHtml(e.creditAccount)}</td>
+    <td class="amount">&yen;${e.creditAmount.toLocaleString()}</td>
+    <td>${escapeHtml(e.description)}</td>
+  </tr>`).join('');
+
+  journalPreview.innerHTML = `<table class="journal-table">
+    <thead><tr><th>日付</th><th>借方科目</th><th>借方金額</th><th>貸方科目</th><th>貸方金額</th><th>摘要</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td>合計</td><td></td><td class="amount">&yen;${totalAmount.toLocaleString()}</td><td></td><td class="amount">&yen;${totalAmount.toLocaleString()}</td><td>${entries.length}件</td></tr></tfoot>
+  </table>`;
+}
+
+journalYear.addEventListener('change', renderJournalView);
+
+journalCsvBtn.addEventListener('click', () => {
+  const selectedYear = journalYear.value;
+  if (!selectedYear) { showToast('年度を選択してください', 'error'); return; }
+  const filtered = allRecords
+    .filter(r => extractYear(r.date) === selectedYear)
+    .sort((a, b) => String(a.date) < String(b.date) ? -1 : 1);
+  const entries = generateJournalEntries(filtered);
+  if (entries.length === 0) { showToast('仕訳データがありません', 'error'); return; }
+
+  const header = '日付,借方科目,借方金額,貸方科目,貸方金額,摘要';
+  const csvRows = entries.map(e =>
+    `${e.date},${e.debitAccount},${e.debitAmount},${e.creditAccount},${e.creditAmount},"${e.description.replace(/"/g, '""')}"`
+  );
+  const csv = '\uFEFF' + header + '\n' + csvRows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `仕訳帳_${selectedYear}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(`仕訳帳_${selectedYear}.csv をダウンロードしました`);
 });
 
 // --- Service Worker ---

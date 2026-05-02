@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="レシート">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
   <div class="app">
@@ -145,12 +145,36 @@
         </div>
         <!-- Gmail -->
         <div class="alt-panel" id="altGmail">
-          <div class="gmail-search-bar">
-            <input type="text" id="gmailQuery" placeholder="検索キーワード（空欄で最新）">
-            <button class="btn btn-primary btn-sm" id="gmailSearchBtn">検索</button>
+          <div class="gmail-weekly">
+            <button class="btn btn-primary" id="weeklyScanBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+              今週の領収書メールを自動チェック
+            </button>
+            <p class="weekly-meta" id="weeklyMeta"></p>
           </div>
-          <div class="gmail-list" id="gmailList">
-            <p class="history-empty">検索ボタンでレシート関連メールを取得</p>
+          <details class="gmail-manual">
+            <summary>手動検索</summary>
+            <div class="gmail-search-bar">
+              <input type="text" id="gmailQuery" placeholder="検索キーワード（空欄で最新）">
+              <button class="btn btn-secondary btn-sm" id="gmailSearchBtn">検索</button>
+            </div>
+            <div class="gmail-list" id="gmailList">
+              <p class="history-empty">キーワード検索でメールを表示</p>
+            </div>
+          </details>
+          <!-- 週次レビュー -->
+          <div class="weekly-review hidden" id="weeklyReview">
+            <div class="weekly-review-header">
+              <h3>レシート候補 <span id="weeklyCount"></span></h3>
+              <div class="weekly-review-actions">
+                <button class="btn btn-secondary btn-sm" id="weeklySelectAllBtn">全選択</button>
+                <button class="btn btn-secondary btn-sm" id="weeklyDeselectAllBtn">全解除</button>
+              </div>
+            </div>
+            <div class="weekly-list" id="weeklyList"></div>
+            <div class="weekly-footer">
+              <button class="btn btn-primary" id="weeklyImportBtn">選択した項目を登録</button>
+            </div>
           </div>
         </div>
         <!-- URL -->
@@ -179,6 +203,14 @@
       <div class="analyzing hidden" id="analyzingIndicator">
         <div class="spinner"></div>
         <p>AIが解析中...</p>
+        <p class="retry-info hidden" id="retryInfo"></p>
+      </div>
+      <div class="analyze-error hidden" id="analyzeError">
+        <p class="error-message" id="analyzeErrorMsg">解析に失敗しました</p>
+        <div class="analyze-error-actions">
+          <button type="button" class="btn btn-primary btn-sm" id="retryAnalyzeBtn">再解析</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="manualEntryBtn">手動入力</button>
+        </div>
       </div>
     </section>
 
@@ -348,6 +380,7 @@
         <button class="tab-btn active" data-tab="list">一覧</button>
         <button class="tab-btn" data-tab="monthly">月別</button>
         <button class="tab-btn" data-tab="yearly">年別</button>
+        <button class="tab-btn" data-tab="journal">仕訳帳</button>
       </div>
       <!-- 一覧タブ -->
       <div class="tab-content active" id="tabList">
@@ -395,6 +428,19 @@
       <div class="tab-content" id="tabYearly">
         <div id="yearlyView"></div>
       </div>
+      <!-- 仕訳帳タブ -->
+      <div class="tab-content" id="tabJournal">
+        <div class="journal-controls">
+          <select id="journalYear"></select>
+          <button class="btn btn-primary btn-sm" id="journalCsvBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            CSVダウンロード
+          </button>
+        </div>
+        <div id="journalPreview">
+          <p class="history-empty">年度を選択してください</p>
+        </div>
+      </div>
       <a class="sheet-link" id="sheetLink" href="#" target="_blank" rel="noopener">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         スプレッドシートを開く
@@ -436,6 +482,18 @@
               <option value="その他">その他</option>
             </select>
           </label>
+          <div class="form-row">
+            <label class="form-half">経費区分
+              <select id="editExpenseType">
+                <option value="事業">事業</option>
+                <option value="個人">個人</option>
+                <option value="家事按分">家事按分</option>
+              </select>
+            </label>
+            <label class="form-half">按分率（%）
+              <input type="number" id="editProration" min="0" max="100">
+            </label>
+          </div>
           <label>メモ <input type="text" id="editMemo"></label>
           <div class="form-actions">
             <button class="btn btn-primary" id="editSaveBtn">更新</button>
@@ -452,6 +510,6 @@
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/heic-to@1.4.2/dist/iife/heic-to.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
