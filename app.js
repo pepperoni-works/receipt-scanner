@@ -304,7 +304,7 @@ function handleGmailSearch(e) {
   const uq=(e.parameter.q||'').trim();const days=parseInt(e.parameter.days)||0;
   const after=(e.parameter.after||'').trim();const before=(e.parameter.before||'').trim();
   const limit=Math.min(parseInt(e.parameter.limit)||10,100);
-  let query=uq?uq:'(レシート OR 領収書 OR 注文確認 OR ご利用明細 OR receipt OR order OR invoice OR ご請求 OR 決済完了)';
+  let query=uq?uq:'(レシート OR 領収書 OR 注文 OR 購入 OR ご利用 OR ご請求 OR お支払い OR 決済 OR 引き落とし OR お買い上げ OR 確認 OR 完了 OR receipt OR order OR invoice OR purchase OR payment OR billing OR subscription OR confirmation)';
   if(days>0)query+=' newer_than:'+days+'d';
   if(after)query+=' after:'+after.replace(/-/g,'/');
   if(before)query+=' before:'+before.replace(/-/g,'/');
@@ -918,12 +918,13 @@ async function runWeeklyScan() {
     }
 
     weeklyScanBtn.textContent = `AI分類中... (${data.emails.length}件)`;
+    const fetchedCount = data.emails.length;
 
     // 2. AI一括分類＋抽出
     const candidates = await classifyAndExtractEmails(apiKey, data.emails);
 
     if (candidates.length === 0) {
-      showToast('レシート候補が見つかりませんでした', 'success');
+      showToast(`Gmail検索: ${fetchedCount}件取得 → AI判定: 経費メール 0件`, 'success');
       localStorage.setItem('receipt_last_weekly_scan', new Date().toISOString());
       updateWeeklyMeta();
       return;
@@ -936,6 +937,7 @@ async function runWeeklyScan() {
       duplicate: isDuplicate(c)
     }));
 
+    showToast(`Gmail取得 ${fetchedCount}件 → AI判定 ${candidates.length}件が経費候補`);
     renderWeeklyList();
     weeklyReview.classList.remove('hidden');
     localStorage.setItem('receipt_last_weekly_scan', new Date().toISOString());
@@ -976,8 +978,28 @@ async function classifyAndExtractEmails(apiKey, emails) {
       max_tokens: 8000,
       messages: [{
         role: 'user',
-        content: `以下は最近のメール一覧です。各メールについて、領収書・レシート・注文確認・請求書（経費として記録すべきもの）かを判定し、該当するものだけ情報を抽出してください。
-広告メール、ニュースレター、配送通知、未確定の予約確認等は除外してください。
+        content: `以下は最近のメール一覧です。各メールについて経費・支払い・購入の記録になりうるかを判定してください。
+
+【含めるもの】
+- 領収書、レシート、請求書、インボイス
+- 注文確認、購入確認、決済完了通知
+- サブスクリプションの継続課金通知（Netflix、Spotify、Adobe等）
+- API/SaaS利用料の請求（Anthropic、AWS、GitHub等）
+- 配送通知でも商品名と金額が明記されているもの
+- ホテル・交通機関・飲食店の予約完了通知（金額確定済み）
+- 公共料金・通信費の請求
+
+【除外するもの】
+- セール案内、クーポン配布、メルマガ
+- 未確定の見積もり、仮予約、カート放棄リマインド
+- パスワード変更、アカウント通知などの管理メール
+
+判定方針: 迷ったら含める。「金額が判別できる」「発生済みの取引」が判定基準。
+
+confidence の基準:
+- high: 金額・店舗・日付がほぼ明確
+- medium: いずれかが不明瞭、または推測を要する
+- low: 経費可能性はあるが情報不足（金額不明など）
 
 JSON配列のみで返答（前置き・後書きなし）：
 [
@@ -991,11 +1013,9 @@ JSON配列のみで返答（前置き・後書きなし）：
     "taxRate": "10%/8%/混在/不明",
     "payment": "現金/クレジットカード/電子マネー/QRコード決済/その他/不明",
     "invoice": "T+13桁",
-    "memo": "特記事項"
+    "memo": "メールの主要情報・備考"
   }
 ]
-
-該当メール（経費メール）のみJSON配列に含めてください。amountが取得できないものは confidence:"low" にしてください。
 
 メール一覧:
 ${emailList}`

@@ -191,7 +191,7 @@ function handleGmailSearch(e) {
   const after = (e.parameter.after || '').trim(); // YYYY/MM/DD or YYYY-MM-DD
   const before = (e.parameter.before || '').trim();
   const limit = Math.min(parseInt(e.parameter.limit) || 10, 100);
-  let query = uq ? uq : '(レシート OR 領収書 OR 注文確認 OR ご利用明細 OR receipt OR order OR invoice OR ご請求 OR 決済完了)';
+  let query = uq ? uq : '(レシート OR 領収書 OR 注文 OR 購入 OR ご利用 OR ご請求 OR お支払い OR 決済 OR 引き落とし OR お買い上げ OR 確認 OR 完了 OR receipt OR order OR invoice OR purchase OR payment OR billing OR subscription OR confirmation)';
   if (days > 0) query += ' newer_than:' + days + 'd';
   if (after) query += ' after:' + after.replace(/-/g, '/');
   if (before) query += ' before:' + before.replace(/-/g, '/');
