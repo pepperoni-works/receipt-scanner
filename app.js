@@ -807,6 +807,7 @@ const weeklyImportBtn = document.getElementById('weeklyImportBtn');
 let weeklyCandidates = []; // {checked, confidence, store, date, amount, category, taxRate, payment, invoice, memo, emailId, emailSubject}
 
 function updateWeeklyMeta() {
+  if (!weeklyMeta) return;
   const last = localStorage.getItem('receipt_last_weekly_scan');
   if (!last) {
     weeklyMeta.textContent = 'まだ実行されていません';
@@ -821,9 +822,10 @@ function updateWeeklyMeta() {
     weeklyMeta.textContent = `前回: ${dStr}（${days}日前）`;
   }
 }
-updateWeeklyMeta();
-
-weeklyScanBtn.addEventListener('click', runWeeklyScan);
+if (weeklyScanBtn) {
+  updateWeeklyMeta();
+  weeklyScanBtn.addEventListener('click', runWeeklyScan);
+}
 
 async function runWeeklyScan() {
   const apiKey = getApiKey();
@@ -961,6 +963,7 @@ ${emailList}`
 }
 
 function renderWeeklyList() {
+  if (!weeklyList || !weeklyCount) return;
   weeklyCount.textContent = `${weeklyCandidates.length}件（${weeklyCandidates.filter(c => c.checked).length}件選択中）`;
   weeklyList.innerHTML = weeklyCandidates.map((c, i) => {
     const confLabel = { high: '確度高', medium: '確度中', low: '確度低' }[c.confidence] || '';
@@ -1013,16 +1016,16 @@ function openWeeklyEdit(idx) {
 
 let editingWeeklyIdx = -1;
 
-weeklySelectAllBtn.addEventListener('click', () => {
+if (weeklySelectAllBtn) weeklySelectAllBtn.addEventListener('click', () => {
   weeklyCandidates.forEach(c => c.checked = true);
   renderWeeklyList();
 });
-weeklyDeselectAllBtn.addEventListener('click', () => {
+if (weeklyDeselectAllBtn) weeklyDeselectAllBtn.addEventListener('click', () => {
   weeklyCandidates.forEach(c => c.checked = false);
   renderWeeklyList();
 });
 
-weeklyImportBtn.addEventListener('click', async () => {
+if (weeklyImportBtn) weeklyImportBtn.addEventListener('click', async () => {
   const selected = weeklyCandidates.filter(c => c.checked);
   if (selected.length === 0) { showToast('項目を選択してください', 'error'); return; }
   const gasUrl = getGasUrl();
@@ -1298,10 +1301,10 @@ async function analyzeReceipt(isRetry = false) {
     return;
   }
 
-  analyzeError.classList.add('hidden');
+  if (analyzeError) analyzeError.classList.add('hidden');
   analyzingIndicator.classList.remove('hidden');
   analyzingIndicator.querySelector('p').textContent = 'AIが解析中...';
-  retryInfo.classList.add('hidden');
+  if (retryInfo) retryInfo.classList.add('hidden');
 
   const today = new Date().toISOString().split('T')[0];
   const maxAttempts = 3;
@@ -1328,17 +1331,17 @@ async function analyzeReceipt(isRetry = false) {
 
   // すべて失敗：画像とフォームは保持して再試行/手動入力を提示
   analyzingIndicator.classList.add('hidden');
-  analyzeErrorMsg.textContent = `解析失敗: ${lastError?.message || '不明なエラー'}`;
-  analyzeError.classList.remove('hidden');
+  if (analyzeErrorMsg) analyzeErrorMsg.textContent = `解析失敗: ${lastError?.message || '不明なエラー'}`;
+  if (analyzeError) analyzeError.classList.remove('hidden');
   showToast('解析失敗。再試行か手動入力してください', 'error');
 }
 
-retryAnalyzeBtn.addEventListener('click', () => {
+if (retryAnalyzeBtn) retryAnalyzeBtn.addEventListener('click', () => {
   if (currentBase64) analyzeReceipt(true);
 });
 
-manualEntryBtn.addEventListener('click', () => {
-  analyzeError.classList.add('hidden');
+if (manualEntryBtn) manualEntryBtn.addEventListener('click', () => {
+  if (analyzeError) analyzeError.classList.add('hidden');
   // 空のフォームを表示（今日の日付・雑費でデフォルト）
   populateForm({
     store: '', date: new Date().toISOString().split('T')[0], amount: '',
@@ -2295,6 +2298,7 @@ const journalCsvBtn = document.getElementById('journalCsvBtn');
 const journalPreview = document.getElementById('journalPreview');
 
 function renderJournalView() {
+  if (!journalYear || !journalPreview) return;
   // 年ドロップダウンを更新
   const years = [...new Set(allRecords.map(r => extractYear(r.date)).filter(Boolean))].sort().reverse();
   const currentVal = journalYear.value;
@@ -2335,9 +2339,9 @@ function renderJournalView() {
   </table>`;
 }
 
-journalYear.addEventListener('change', renderJournalView);
+if (journalYear) journalYear.addEventListener('change', renderJournalView);
 
-journalCsvBtn.addEventListener('click', () => {
+if (journalCsvBtn) journalCsvBtn.addEventListener('click', () => {
   const selectedYear = journalYear.value;
   if (!selectedYear) { showToast('年度を選択してください', 'error'); return; }
   const filtered = allRecords
