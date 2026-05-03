@@ -301,9 +301,13 @@ function updateMonthlySummary() {
   if(ms.length>0)sm.getRange(2,2,sm.getLastRow()-1,cs.length+2).setNumberFormat('#,##0');
 }
 function handleGmailSearch(e) {
-  const uq=(e.parameter.q||'').trim();const days=parseInt(e.parameter.days)||0;const limit=Math.min(parseInt(e.parameter.limit)||10,50);
+  const uq=(e.parameter.q||'').trim();const days=parseInt(e.parameter.days)||0;
+  const after=(e.parameter.after||'').trim();const before=(e.parameter.before||'').trim();
+  const limit=Math.min(parseInt(e.parameter.limit)||10,100);
   let query=uq?uq:'(レシート OR 領収書 OR 注文確認 OR ご利用明細 OR receipt OR order OR invoice OR ご請求 OR 決済完了)';
   if(days>0)query+=' newer_than:'+days+'d';
+  if(after)query+=' after:'+after.replace(/-/g,'/');
+  if(before)query+=' before:'+before.replace(/-/g,'/');
   const threads=GmailApp.search(query,0,limit);
   const emails=threads.map(t=>{const m=t.getMessages()[t.getMessageCount()-1];return{id:m.getId(),subject:m.getSubject(),from:m.getFrom(),date:m.getDate().toISOString(),snippet:m.getPlainBody().substring(0,300)};});
   return ContentService.createTextOutput(JSON.stringify({success:true,emails:emails})).setMimeType(ContentService.MimeType.JSON);
@@ -825,6 +829,68 @@ function updateWeeklyMeta() {
 if (weeklyScanBtn) {
   updateWeeklyMeta();
   weeklyScanBtn.addEventListener('click', runWeeklyScan);
+  // 範囲プリセットの切り替え
+  const scanRangePreset = document.getElementById('scanRangePreset');
+  const scanRangeCustom = document.getElementById('scanRangeCustom');
+  const scanRangeFrom = document.getElementById('scanRangeFrom');
+  const scanRangeTo = document.getElementById('scanRangeTo');
+  const weeklyScanBtnLabel = document.getElementById('weeklyScanBtnLabel');
+  // デフォルト：先月
+  if (scanRangeFrom && scanRangeTo) {
+    const today = new Date();
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const lastMonthStr = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth()+1).padStart(2,'0')}`;
+    scanRangeFrom.value = lastMonthStr;
+    scanRangeTo.value = lastMonthStr;
+  }
+  function updateRangeUI() {
+    const v = scanRangePreset?.value;
+    if (v === 'custom') scanRangeCustom?.classList.remove('hidden');
+    else scanRangeCustom?.classList.add('hidden');
+    // ボタンラベル更新
+    if (weeklyScanBtnLabel) {
+      const labels = { '7': '過去7日間', '30': '過去30日間', 'last-month': '先月', 'this-month': '今月', 'custom': 'カスタム範囲' };
+      weeklyScanBtnLabel.textContent = `${labels[v] || ''}の領収書メールをチェック`;
+    }
+  }
+  if (scanRangePreset) scanRangePreset.addEventListener('change', updateRangeUI);
+  updateRangeUI();
+}
+
+function buildScanRangeParams() {
+  const preset = document.getElementById('scanRangePreset')?.value || '7';
+  const params = new URLSearchParams({ action: 'gmail', limit: '100' });
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const today = new Date();
+  let label;
+  if (preset === '7') { params.set('days', '7'); label = '過去7日間'; }
+  else if (preset === '30') { params.set('days', '30'); label = '過去30日間'; }
+  else if (preset === 'last-month') {
+    const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const last = new Date(today.getFullYear(), today.getMonth(), 1);
+    params.set('after', fmt(first));
+    params.set('before', fmt(last));
+    label = `${first.getFullYear()}年${first.getMonth()+1}月`;
+  } else if (preset === 'this-month') {
+    const first = new Date(today.getFullYear(), today.getMonth(), 1);
+    const last = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    params.set('after', fmt(first));
+    params.set('before', fmt(last));
+    label = `${first.getFullYear()}年${first.getMonth()+1}月`;
+  } else if (preset === 'custom') {
+    const fromVal = document.getElementById('scanRangeFrom')?.value;
+    const toVal = document.getElementById('scanRangeTo')?.value;
+    if (!fromVal || !toVal) { return { error: '開始月と終了月を指定してください' }; }
+    const [fy, fm] = fromVal.split('-').map(Number);
+    const [ty, tm] = toVal.split('-').map(Number);
+    const after = new Date(fy, fm - 1, 1);
+    const before = new Date(ty, tm, 1); // 翌月1日
+    if (before <= after) return { error: '終了月は開始月以降にしてください' };
+    params.set('after', fmt(after));
+    params.set('before', fmt(before));
+    label = fromVal === toVal ? `${fy}年${fm}月` : `${fy}年${fm}月〜${ty}年${tm}月`;
+  } else { params.set('days', '7'); label = '過去7日間'; }
+  return { params, label };
 }
 
 async function runWeeklyScan() {
@@ -833,19 +899,21 @@ async function runWeeklyScan() {
   const gasUrl = getGasUrl();
   if (!gasUrl) { showToast('GAS URLを設定してください', 'error'); return; }
 
+  const range = buildScanRangeParams();
+  if (range.error) { showToast(range.error, 'error'); return; }
+
   weeklyScanBtn.disabled = true;
   const origText = weeklyScanBtn.innerHTML;
-  weeklyScanBtn.textContent = 'メール取得中...';
+  weeklyScanBtn.textContent = `${range.label}のメール取得中...`;
   weeklyReview.classList.add('hidden');
 
   try {
-    // 1. 過去7日間のメール取得（最大50件）
-    const res = await fetch(`${gasUrl}?action=gmail&days=7&limit=50`, { redirect: 'follow' });
+    const res = await fetch(`${gasUrl}?${range.params.toString()}`, { redirect: 'follow' });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Gmail検索失敗');
 
     if (!data.emails || data.emails.length === 0) {
-      showToast('過去7日間に該当メールはありません', 'success');
+      showToast(`${range.label}に該当メールはありません`, 'success');
       return;
     }
 
@@ -905,7 +973,7 @@ async function classifyAndExtractEmails(apiKey, emails) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: [{
         role: 'user',
         content: `以下は最近のメール一覧です。各メールについて、領収書・レシート・注文確認・請求書（経費として記録すべきもの）かを判定し、該当するものだけ情報を抽出してください。

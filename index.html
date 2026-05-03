@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="レシート">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
   <div class="app">
@@ -146,9 +146,21 @@
         <!-- Gmail -->
         <div class="alt-panel" id="altGmail">
           <div class="gmail-weekly">
+            <label class="form-label">検索範囲</label>
+            <select id="scanRangePreset">
+              <option value="7">過去7日間</option>
+              <option value="30">過去30日間</option>
+              <option value="last-month">先月</option>
+              <option value="this-month">今月</option>
+              <option value="custom">カスタム（月範囲）</option>
+            </select>
+            <div class="form-row scan-range-custom hidden" id="scanRangeCustom">
+              <label class="form-half">開始月 <input type="month" id="scanRangeFrom"></label>
+              <label class="form-half">終了月 <input type="month" id="scanRangeTo"></label>
+            </div>
             <button class="btn btn-primary" id="weeklyScanBtn">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
-              今週の領収書メールを自動チェック
+              <span id="weeklyScanBtnLabel">領収書メールを自動チェック</span>
             </button>
             <p class="weekly-meta" id="weeklyMeta"></p>
           </div>
@@ -510,6 +522,6 @@
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/heic-to@1.4.2/dist/iife/heic-to.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>
