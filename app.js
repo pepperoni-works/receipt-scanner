@@ -178,7 +178,7 @@ saveAndCheckBtn.addEventListener('click', async () => {
           'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-5',
           max_tokens: 1,
           messages: [{ role: 'user', content: 'hi' }]
         })
@@ -468,7 +468,7 @@ async function analyzeText() {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 1000,
         messages: [{
           role: 'user',
@@ -558,7 +558,7 @@ async function handlePdf(file) {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 1000,
         messages: [{
           role: 'user',
@@ -640,7 +640,7 @@ async function analyzeUrl() {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 1000,
         messages: [{
           role: 'user',
@@ -759,7 +759,7 @@ async function analyzeGmailMessage(msgId) {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 1000,
         messages: [{
           role: 'user',
@@ -974,7 +974,7 @@ async function classifyAndExtractEmails(apiKey, emails) {
       'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 8000,
       messages: [{
         role: 'user',
@@ -1335,7 +1335,7 @@ async function callAnthropicForReceipt(apiKey, today) {
       'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 1000,
       messages: [{
         role: 'user',
@@ -2115,7 +2115,7 @@ csvImportBtn.addEventListener('click', async () => {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 4000,
         messages: [{
           role: 'user',
