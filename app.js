@@ -1419,9 +1419,13 @@ async function analyzeReceipt(isRetry = false) {
 
   // すべて失敗：画像とフォームは保持して再試行/手動入力を提示
   analyzingIndicator.classList.add('hidden');
-  if (analyzeErrorMsg) analyzeErrorMsg.textContent = `解析失敗: ${lastError?.message || '不明なエラー'}`;
+  const errMsg = lastError?.message || lastError?.toString() || '不明なエラー';
+  const statusInfo = lastError?.status ? ` [HTTP ${lastError.status}]` : '';
+  console.error('[analyzeReceipt] 失敗詳細:', lastError);
+  if (analyzeErrorMsg) analyzeErrorMsg.textContent = `解析失敗${statusInfo}: ${errMsg}`;
   if (analyzeError) analyzeError.classList.remove('hidden');
-  showToast('解析失敗。再試行か手動入力してください', 'error');
+  // トーストにも具体的エラーを表示（ユーザーが原因特定できるように）
+  showToast(`解析失敗${statusInfo}: ${errMsg.substring(0, 80)}`, 'error');
 }
 
 if (retryAnalyzeBtn) retryAnalyzeBtn.addEventListener('click', () => {
