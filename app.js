@@ -20,6 +20,19 @@ const cameraInput = document.getElementById('cameraInput');
 const fileInput = document.getElementById('fileInput');
 const uploadSection = document.getElementById('uploadSection');
 const previewSection = document.getElementById('previewSection');
+
+// --- スキャン前の経費区分選択 ---
+window.preExpenseTypeSelected = localStorage.getItem('receipt_pre_expense_type') || '事業';
+document.querySelectorAll('.pre-exp-btn').forEach(btn => {
+  if (btn.dataset.exp === window.preExpenseTypeSelected) btn.classList.add('active');
+  else btn.classList.remove('active');
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.pre-exp-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    window.preExpenseTypeSelected = btn.dataset.exp;
+    localStorage.setItem('receipt_pre_expense_type', btn.dataset.exp);
+  });
+});
 const previewImage = document.getElementById('previewImage');
 const removeImageBtn = document.getElementById('removeImageBtn');
 const analyzingIndicator = document.getElementById('analyzingIndicator');
@@ -1542,8 +1555,12 @@ function populateForm(result) {
   paymentSelect.value = result.payment || '不明';
   invoiceInput.value = result.invoice || '';
   memoInput.value = result.memo || '';
-  expenseTypeSelect.value = result.expenseType || '事業';
-  prorationInput.value = result.proration != null ? result.proration : 100;
+  // スキャン前に選択された経費区分を優先（事業/個人/家事按分）
+  const preSelected = window.preExpenseTypeSelected || '事業';
+  expenseTypeSelect.value = preSelected;
+  if (preSelected === '事業') prorationInput.value = 100;
+  else if (preSelected === '個人') prorationInput.value = 0;
+  else prorationInput.value = result.proration != null ? result.proration : 100;
 
   // 有意な税・支払情報があれば詳細欄を自動展開
   const formDetails = document.getElementById('formDetails');

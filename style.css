@@ -456,6 +456,36 @@ body {
   transform: scale(0.97);
 }
 
+.pre-expense-type {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 4px;
+  background: var(--hover-bg);
+  border-radius: 10px;
+}
+.pre-exp-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pre-exp-btn:hover {
+  color: var(--text);
+}
+.pre-exp-btn.active {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
 .secondary-actions {
   display: flex;
   justify-content: center;

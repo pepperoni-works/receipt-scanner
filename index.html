@@ -86,6 +86,11 @@
     <section class="upload-section" id="uploadSection">
       <!-- メイン入力（撮影・ファイル選択） -->
       <div id="inputMain">
+        <div class="pre-expense-type" id="preExpenseType">
+          <button type="button" class="pre-exp-btn active" data-exp="事業">事業</button>
+          <button type="button" class="pre-exp-btn" data-exp="個人">個人</button>
+          <button type="button" class="pre-exp-btn" data-exp="家事按分">家事按分</button>
+        </div>
         <div class="drop-zone unified-drop" id="dropZone">
           <label class="camera-hero-btn">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -522,6 +527,6 @@
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/heic-to@1.4.2/dist/iife/heic-to.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>
