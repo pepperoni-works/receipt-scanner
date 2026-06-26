@@ -1469,7 +1469,7 @@ const currencyConvertRow = document.getElementById('currencyConvertRow');
 const exchangeRateInput = document.getElementById('exchangeRateInput');
 const jpyAmountDisplay = document.getElementById('jpyAmountDisplay');
 
-const DEFAULT_RATES = { USD: 150, EUR: 163, GBP: 190, CNY: 21, KRW: 0.11, TWD: 4.7, THB: 4.3 };
+const DEFAULT_RATES = { USD: 150, EUR: 163, GBP: 190, CNY: 21, KRW: 0.11, TWD: 4.7, THB: 4.3, MYR: 33, SGD: 112, HKD: 19 };
 
 currencySelect.addEventListener('change', () => {
   const cur = currencySelect.value;
