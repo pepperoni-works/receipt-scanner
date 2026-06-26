@@ -78,7 +78,37 @@ function saveSettings() {
   localStorage.setItem('receipt_sheet_url', sheetUrlInput.value.trim());
   showToast('設定を保存しました', 'success');
   updateSheetLink();
-  if (getGasUrl()) fetchAllHistory();
+  if (getGasUrl()) {
+    fetchAllHistory();
+    backupSettingsToGas(); // GASにも自動バックアップ
+  }
+}
+
+async function backupSettingsToGas() {
+  const gasUrl = getGasUrl();
+  if (!gasUrl) return;
+  const settings = {
+    apiKey: getApiKey(),
+    gasUrl: gasUrl,
+    sheetUrl: localStorage.getItem('receipt_sheet_url') || ''
+  };
+  try {
+    await fetch(gasUrl, {
+      method: 'POST', mode: 'no-cors',
+      body: JSON.stringify({ action: 'saveSettings', settings })
+    });
+  } catch (err) {
+    console.warn('設定バックアップ失敗:', err);
+  }
+}
+
+async function restoreSettingsFromGas(gasUrl) {
+  if (!gasUrl) throw new Error('GAS URLが必要です');
+  const res = await fetch(`${gasUrl}?action=loadSettings`, { redirect: 'follow' });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || '復元失敗');
+  if (!data.settings) throw new Error('バックアップが存在しません');
+  return data.settings;
 }
 
 function getApiKey() {
@@ -161,6 +191,35 @@ function checkItemHtml(id, label, status, detail) {
 function renderChecks(items) {
   checkResults.innerHTML = items.map(i => checkItemHtml(i.id, i.label, i.status, i.detail)).join('');
   checkResults.classList.remove('hidden');
+}
+
+// --- 設定復元ボタン ---
+const restoreSettingsBtn = document.getElementById('restoreSettingsBtn');
+if (restoreSettingsBtn) {
+  restoreSettingsBtn.addEventListener('click', async () => {
+    const gasUrl = gasUrlInput.value.trim() || getGasUrl();
+    if (!gasUrl) {
+      showToast('まずGAS URLを入力してください', 'error');
+      gasUrlInput.focus();
+      return;
+    }
+    restoreSettingsBtn.disabled = true;
+    restoreSettingsBtn.textContent = '復元中...';
+    try {
+      const settings = await restoreSettingsFromGas(gasUrl);
+      if (settings.apiKey) { localStorage.setItem('receipt_api_key', settings.apiKey); apiKeyInput.value = settings.apiKey; }
+      if (settings.gasUrl) { localStorage.setItem('receipt_gas_url', settings.gasUrl); gasUrlInput.value = settings.gasUrl; }
+      if (settings.sheetUrl) { localStorage.setItem('receipt_sheet_url', settings.sheetUrl); sheetUrlInput.value = settings.sheetUrl; }
+      updateSheetLink();
+      if (getGasUrl()) fetchAllHistory();
+      showToast('設定を復元しました', 'success');
+    } catch (err) {
+      showToast('復元失敗: ' + err.message, 'error');
+    } finally {
+      restoreSettingsBtn.disabled = false;
+      restoreSettingsBtn.textContent = 'バックアップから復元';
+    }
+  });
 }
 
 saveAndCheckBtn.addEventListener('click', async () => {
@@ -256,6 +315,7 @@ const SHEET_NAME = 'Sheet1';
 const SUMMARY_SHEET_NAME = '月別集計';
 const DRIVE_FOLDER_NAME = 'レシート画像';
 const COLS = 15;
+const SETTINGS_SHEET_NAME = '_settings';
 function getOrCreateFolder(){const f=DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);if(f.hasNext())return f.next();return DriveApp.createFolder(DRIVE_FOLDER_NAME);}
 function saveImageToDrive(b64,type,name){const f=getOrCreateFolder(),d=Utilities.base64Decode(b64),ext=(type||'image/jpeg').split('/')[1]||'jpg',safe=(name||'receipt').replace(/[\\/\\\\:*?"<>|]/g,'_')+'.'+ext;const blob=Utilities.newBlob(d,type||'image/jpeg',safe),file=f.createFile(blob);file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);return file.getUrl();}
 function doPost(e) {
@@ -264,6 +324,7 @@ function doPost(e) {
     const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
     if (data.action==='delete') return handleDelete(sheet,data);
     if (data.action==='update') return handleUpdate(sheet,data);
+    if (data.action==='saveSettings') return handleSaveSettings(data);
     if (sheet.getLastRow()===0) {
       sheet.appendRow(['日付','店舗名','金額（税込）','勘定科目','税区分','支払方法','インボイス番号','メモ','経費区分','按分率','税抜金額','消費税額','経費算入額','登録日時','画像URL']);
       sheet.getRange(1,1,1,COLS).setFontWeight('bold');
@@ -289,6 +350,7 @@ function doGet(e) {
     if(action==='gmail') return handleGmailSearch(e);
     if(action==='gmail_read') return handleGmailRead(e);
     if(action==='fetch_url') return handleFetchUrl(e);
+    if(action==='loadSettings') return handleLoadSettings();
     return handleGetRecords();
   } catch(err) {
     return ContentService.createTextOutput(JSON.stringify({success:false,error:err.message})).setMimeType(ContentService.MimeType.JSON);
@@ -334,7 +396,10 @@ function handleFetchUrl(e) {
   const res=UrlFetchApp.fetch(url,{muteHttpExceptions:true,followRedirects:true});const html=res.getContentText();
   const text=html.replace(/<script[\\s\\S]*?<\\/script>/gi,'').replace(/<style[\\s\\S]*?<\\/style>/gi,'').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').trim();
   return ContentService.createTextOutput(JSON.stringify({success:true,text:text.substring(0,5000)})).setMimeType(ContentService.MimeType.JSON);
-}`;
+}
+function getSettingsSheet(){const ss=SpreadsheetApp.openById(SHEET_ID);let s=ss.getSheetByName(SETTINGS_SHEET_NAME);if(!s){s=ss.insertSheet(SETTINGS_SHEET_NAME);s.appendRow(['settings_json','updated_at']);s.hideSheet();}return s;}
+function handleSaveSettings(data){const s=getSettingsSheet();const json=JSON.stringify(data.settings||{});const lr=s.getLastRow();const now=new Date().toLocaleString('ja-JP');if(lr<=1)s.appendRow([json,now]);else s.getRange(2,1,1,2).setValues([[json,now]]);return ContentService.createTextOutput(JSON.stringify({success:true})).setMimeType(ContentService.MimeType.JSON);}
+function handleLoadSettings(){const s=getSettingsSheet();if(s.getLastRow()<=1)return ContentService.createTextOutput(JSON.stringify({success:true,settings:null})).setMimeType(ContentService.MimeType.JSON);const json=s.getRange(2,1).getValue();let settings=null;try{settings=JSON.parse(json);}catch(e){}return ContentService.createTextOutput(JSON.stringify({success:true,settings:settings})).setMimeType(ContentService.MimeType.JSON);}`;
 
 const gasCodeEl = document.getElementById('gasCode');
 const copyGasCodeBtn = document.getElementById('copyGasCodeBtn');

@@ -4,6 +4,7 @@ const SHEET_NAME = 'Sheet1';
 const SUMMARY_SHEET_NAME = '月別集計';
 const DRIVE_FOLDER_NAME = 'レシート画像';
 const COLS = 15; // 14列 + 画像URL
+const SETTINGS_SHEET_NAME = '_settings';
 
 // --- Drive画像保存 ---
 function getOrCreateFolder() {
@@ -31,6 +32,7 @@ function doPost(e) {
 
     if (data.action === 'delete') return handleDelete(sheet, data);
     if (data.action === 'update') return handleUpdate(sheet, data);
+    if (data.action === 'saveSettings') return handleSaveSettings(data);
 
     // ヘッダー行がなければ追加
     if (sheet.getLastRow() === 0) {
@@ -126,6 +128,7 @@ function doGet(e) {
     if (action === 'gmail') return handleGmailSearch(e);
     if (action === 'gmail_read') return handleGmailRead(e);
     if (action === 'fetch_url') return handleFetchUrl(e);
+    if (action === 'loadSettings') return handleLoadSettings();
     return handleGetRecords();
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.message })).setMimeType(ContentService.MimeType.JSON);
@@ -219,4 +222,40 @@ function handleFetchUrl(e) {
   const html = res.getContentText();
   const text = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   return ContentService.createTextOutput(JSON.stringify({ success: true, text: text.substring(0, 5000) })).setMimeType(ContentService.MimeType.JSON);
+}
+
+// --- 設定バックアップ ---
+function getSettingsSheet() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let s = ss.getSheetByName(SETTINGS_SHEET_NAME);
+  if (!s) {
+    s = ss.insertSheet(SETTINGS_SHEET_NAME);
+    s.appendRow(['settings_json', 'updated_at']);
+    s.hideSheet();
+  }
+  return s;
+}
+
+function handleSaveSettings(data) {
+  const s = getSettingsSheet();
+  const json = JSON.stringify(data.settings || {});
+  const lastRow = s.getLastRow();
+  const now = new Date().toLocaleString('ja-JP');
+  if (lastRow <= 1) {
+    s.appendRow([json, now]);
+  } else {
+    s.getRange(2, 1, 1, 2).setValues([[json, now]]);
+  }
+  return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function handleLoadSettings() {
+  const s = getSettingsSheet();
+  if (s.getLastRow() <= 1) {
+    return ContentService.createTextOutput(JSON.stringify({ success: true, settings: null })).setMimeType(ContentService.MimeType.JSON);
+  }
+  const json = s.getRange(2, 1).getValue();
+  let settings = null;
+  try { settings = JSON.parse(json); } catch (e) {}
+  return ContentService.createTextOutput(JSON.stringify({ success: true, settings: settings })).setMimeType(ContentService.MimeType.JSON);
 }
