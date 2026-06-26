@@ -1,4 +1,9 @@
-const CACHE_NAME = 'receipt-scanner-v4';
+const CACHE_NAME = 'receipt-scanner-v5';
+
+// 手動更新トリガー（クライアント側からpostMessage）
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
 const ASSETS = [
   './',
   './index.html',
@@ -11,8 +16,9 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
+  // skipWaiting はしない（ユーザーが更新ボタン押すまで待機）
   e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
   );
 });
 

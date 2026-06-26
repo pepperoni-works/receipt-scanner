@@ -2474,7 +2474,52 @@ if (journalCsvBtn) journalCsvBtn.addEventListener('click', () => {
   showToast(`仕訳帳_${selectedYear}.csv をダウンロードしました`);
 });
 
-// --- Service Worker ---
+// --- Service Worker + 自動更新検出 ---
+function showUpdateBanner(newWorker) {
+  // 既に表示中なら何もしない
+  if (document.getElementById('updateBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'updateBanner';
+  banner.className = 'update-banner';
+  banner.innerHTML = `
+    <span class="update-banner-text">新しいバージョンがあります</span>
+    <button class="update-banner-btn" id="updateBannerBtn">更新</button>
+    <button class="update-banner-close" id="updateBannerClose" aria-label="閉じる">&times;</button>
+  `;
+  document.body.appendChild(banner);
+  document.getElementById('updateBannerBtn').addEventListener('click', () => {
+    if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
+  });
+  document.getElementById('updateBannerClose').addEventListener('click', () => banner.remove());
+}
+
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  navigator.serviceWorker.register('./sw.js').then(reg => {
+    // 起動時に更新チェック
+    reg.update().catch(() => {});
+    // フォアグラウンド復帰時に再チェック（PWAでホーム画面から開いた時にも）
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) reg.update().catch(() => {});
+    });
+    // 5分ごとに更新チェック
+    setInterval(() => reg.update().catch(() => {}), 5 * 60 * 1000);
+    // 新SW検出
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      if (!newWorker) return;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          // 新SW準備完了（既存SWが動いている）→ ユーザーに通知
+          showUpdateBanner(newWorker);
+        }
+      });
+    });
+    // 新SWが制御を取得 → 自動リロード
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
+  }).catch(() => {});
 }
